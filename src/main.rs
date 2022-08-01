@@ -11,18 +11,15 @@ where
 
 fn main() {
     let config: Config<'static, 0, &str> = Config::builder()
-        .value(&"amin")
-        .value(&"sahar")
-        .optional("opt1".to_string())
-        .optional_2("opt2".to_string())
-        .value_2(&"faezeh")
+        .value_2(&"value_2")
+        .optional("optional".to_string())
+        .value(&"value_old")
+        .value(&"value_new")
+        .optional_2("optional_2".to_string())
         .build();
 
-    assert_eq!(config.value, &"sahar");
-    assert_eq!(config.value_2, &"faezeh");
-    assert_eq!(config.optional.unwrap(), "opt1".to_string());
-    assert_eq!(config.optional_2.unwrap(), "opt2".to_string());
-    // Config::builder().value(&"amin").value_2(&"faezeh").build();
-    // Config::builder().value(&"amin").value_2(&"faezeh").build();
-    // Config::builder().value(&"amin").value_2(&"faezeh").build();
+    assert_eq!(config.value, &"value_new");
+    assert_eq!(config.value_2, &"value_2");
+    assert_eq!(config.optional.unwrap(), "optional".to_string());
+    assert_eq!(config.optional_2.unwrap(), "optional_2".to_string());
 }
