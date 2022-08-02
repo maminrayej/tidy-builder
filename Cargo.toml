@@ -2,8 +2,13 @@
 name = "tidy-builder"
 version = "0.1.0"
 edition = "2021"
+description = "tidy-builder is a builder generator that is compile-time correct"
+authors = ["m.amin.rayej <m.amin.rayej@gmail.com>"]
+repository = "https://github.com/maminrayej/tidy-builder"
+license = "MIT"
+categories = ["rust-patterns"]
+keywords = ["builder", "builder_pattern"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 proc-macro = true
 
