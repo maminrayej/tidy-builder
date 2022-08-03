@@ -1,0 +1,5 @@
+error: Builder does not support unnamed fields
+ --> tests/ui/error/builder_does_not_support_unnamed_fields.rs:2:16
+  |
+2 | struct MyStruct(usize, usize);
+  |                ^^^^^^^^^^^^^^

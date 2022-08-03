@@ -1,0 +1,11 @@
+error[E0599]: no method named `build` found for struct `MyStructBuilder<'_, '_, '_, {_: usize}, {_: bool}, false, false, String>` in the current scope
+  --> tests/ui/generics_with_const_generics.rs:19:10
+   |
+1  | #[derive(tidy_builder::Builder)]
+   |          --------------------- method `build` not found for this
+...
+19 |         .build();
+   |          ^^^^^ method not found in `MyStructBuilder<'_, '_, '_, {_: usize}, {_: bool}, false, false, String>`
+   |
+   = note: the method was found for
+           - `MyStructBuilder<'a, 'b, 'c, N, FLG, true, true, T>`

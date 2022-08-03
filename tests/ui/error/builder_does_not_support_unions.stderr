@@ -1,0 +1,5 @@
+error: Builder does not support unions
+ --> tests/ui/error/builder_does_not_support_unions.rs:2:1
+  |
+2 | union MyUnion {
+  | ^^^^^
