@@ -1,0 +1,11 @@
+error[E0599]: no method named `build` found for struct `MyStructBuilder<'_, '_, '_, false, true, String>` in the current scope
+  --> tests/ui/generics_with_lifetimes.rs:20:10
+   |
+1  | #[derive(tidy_builder::Builder)]
+   |          --------------------- method `build` not found for this
+...
+20 |         .build();
+   |          ^^^^^ method not found in `MyStructBuilder<'_, '_, '_, false, true, String>`
+   |
+   = note: the method was found for
+           - `MyStructBuilder<'a, 'b, 'c, true, true, T>`

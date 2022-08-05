@@ -1,0 +1,11 @@
+error[E0599]: no method named `build` found for struct `MyStructBuilder<'_, '_, '_, {_: usize}, {_: bool}, false, true, String>` in the current scope
+  --> tests/ui/multiple_initialization.rs:25:10
+   |
+1  | #[derive(tidy_builder::Builder)]
+   |          --------------------- method `build` not found for this
+...
+25 |         .build();
+   |          ^^^^^ method not found in `MyStructBuilder<'_, '_, '_, {_: usize}, {_: bool}, false, true, String>`
+   |
+   = note: the method was found for
+           - `MyStructBuilder<'a, 'b, 'c, N, FLG, true, true, T>`

@@ -366,7 +366,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 // we need to move the fields from the previous state to the new one.
                 // This field contains the moves of optional fields.
                 let mut opt_moves = vec![];
-                
+
                 for opt_field in &optional_fields {
                     let field_ident = &opt_field.ident;
                     let field_ty = &opt_field.ty;

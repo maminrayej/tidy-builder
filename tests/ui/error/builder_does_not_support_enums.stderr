@@ -1,0 +1,5 @@
+error: Builder does not support enums
+ --> tests/ui/error/builder_does_not_support_enums.rs:2:1
+  |
+2 | enum MyEnum {
+  | ^^^^

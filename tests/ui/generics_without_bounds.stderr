@@ -1,0 +1,11 @@
+error[E0599]: no method named `build` found for struct `MyStructBuilder<false, false, String>` in the current scope
+  --> tests/ui/generics_without_bounds.rs:11:10
+   |
+1  | #[derive(tidy_builder::Builder)]
+   |          --------------------- method `build` not found for this
+...
+11 |         .build();
+   |          ^^^^^ method not found in `MyStructBuilder<false, false, String>`
+   |
+   = note: the method was found for
+           - `MyStructBuilder<true, true, T>`
