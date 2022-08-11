@@ -6,16 +6,22 @@ pub enum FieldAttrKind {
 }
 
 pub enum FieldAttr {
-    // #[builder(each = "each", new = "new", ext = "single|tuple")
-    Repeat {
-        each: String,
-        new: String,
-        ext: String,
-    },
+    // #[builder(each = "each")
+    Repeat(String),
+
     // #[builder(default)]
     Default,
 }
 
+// #[builder(each = "each")]
+//           -------------
+//            nested meta
+//
+// # Arguments
+// `nested`: List of comma seperated nested metas.
+//
+// # Returns
+// The attribute kind based on the first nested meta.
 fn attr_kind(
     nested: &syn::punctuated::Punctuated<syn::NestedMeta, syn::token::Comma>,
 ) -> Result<FieldAttrKind, BuilderError> {
@@ -41,15 +47,17 @@ fn attr_kind(
     }
 }
 
+// Tries to parse the provided `nested` as a name-value meta.
+// It returns the value only if the name is equal to the `expected_name`.
 fn parse_name_value(nested: &syn::NestedMeta, expected_name: &str) -> Result<String, BuilderError> {
     if let syn::NestedMeta::Meta(syn::Meta::NameValue(syn::MetaNameValue { path, lit, .. })) =
         nested
     {
         // Make sure the name is what it's expected.
-        let name = path.segments[0].ident.to_string();
-        if name != "each" {
+        let name = &path.segments[0].ident;
+        if name != expected_name {
             return Err(BuilderError::UnexpectedName(
-                path.segments[0].ident.clone(),
+                name.clone(),
                 expected_name.to_string(),
             ));
         }
@@ -58,7 +66,7 @@ fn parse_name_value(nested: &syn::NestedMeta, expected_name: &str) -> Result<Str
         let value = if let syn::Lit::Str(lit_str) = lit {
             lit_str.value()
         } else {
-            return Err(BuilderError::NonStrValue(lit.clone()));
+            return Err(BuilderError::NotStrValue(lit.clone()));
         };
 
         Ok(value)
@@ -66,28 +74,17 @@ fn parse_name_value(nested: &syn::NestedMeta, expected_name: &str) -> Result<Str
         Err(BuilderError::NotNameValue(nested.clone()))
     }
 }
-
+// Returns the parsed #[builder(each = "each")] attribute.
 fn parse_repeated(
     nested: &syn::punctuated::Punctuated<syn::NestedMeta, syn::token::Comma>,
 ) -> Result<FieldAttr, BuilderError> {
     let each = parse_name_value(&nested[0], "each")?;
 
-    let new = if nested.len() >= 2 {
-        parse_name_value(&nested[1], "new")?
-    } else {
-        "new".to_string()
-    };
-
-    let ext = if nested.len() == 3 {
-        parse_name_value(&nested[2], "ext")?
-    } else {
-        "single".to_string()
-    };
-
-    Ok(FieldAttr::Repeat { each, new, ext })
+    Ok(FieldAttr::Repeat(each))
 }
 
-pub fn parse_attrs(field: &syn::Field) -> Result<Vec<FieldAttr>, BuilderError> {
+// Parses and returns the attributes of the `field`.
+pub fn parse_attrs(field: &syn::Field) -> Result<FieldAttrs, BuilderError> {
     let mut parsed_attrs = vec![];
 
     for raw_attr in &field.attrs {
@@ -103,5 +100,20 @@ pub fn parse_attrs(field: &syn::Field) -> Result<Vec<FieldAttr>, BuilderError> {
         }
     }
 
-    Ok(parsed_attrs)
+    Ok(FieldAttrs(parsed_attrs))
+}
+
+pub struct FieldAttrs(Vec<FieldAttr>);
+
+impl FieldAttrs {
+    pub fn is_default(&self) -> bool {
+        self.0.iter().any(|attr| matches!(attr, FieldAttr::Default))
+    }
+
+    pub fn repeated(&self) -> Option<&String> {
+        self.0.iter().find_map(|attr| match attr {
+            FieldAttr::Repeat(each) => Some(each),
+            FieldAttr::Default => None,
+        })
+    }
 }

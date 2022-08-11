@@ -153,18 +153,63 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let field_ty = &opt_field.ty;
                     let inner_ty = is_option(field_ty).unwrap();
 
+                    let attrs = match parse_attrs(opt_field) {
+                        Ok(attrs) => attrs,
+                        Err(err) => {
+                            return err.into();
+                        }
+                    };
+
+                    let repeated_attr = attrs.repeated();
+
                     // When we set an optional field, we stay in the same state.
                     // Therefore, we just need to set the value of the optional field.
-                    opt_setters.push(
-                        quote! {
-                            pub fn #field_ident(mut self, #field_ident: #inner_ty) ->
-                                #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
-                            {
-                                self.#field_ident = Some(#field_ident);
-                                self
-                            }
+                    let opt_setter = quote! {
+                        pub fn #field_ident(mut self, #field_ident: #inner_ty) ->
+                            #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
+                        {
+                            self.#field_ident = Some(#field_ident);
+                            self
                         }
-                    );
+                    };
+
+                    if let Some(each) = repeated_attr {
+                        let raw_ty = if let syn::Type::Path(type_path) = inner_ty {
+                            &type_path.path.segments[0].ident
+                        } else {
+                            return BuilderError::UnsupportedType(field_ty.clone()).into();
+                        };
+                        let inner_inner_ty = wrapped_in(inner_ty, None);
+                        let each_ident = syn::Ident::new(each.as_str(), opt_field.span());
+
+                        opt_setters.push(
+                            quote! {
+                                pub fn #each_ident(mut self, #each_ident: #inner_inner_ty) ->
+                                    #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
+                                {
+                                    match self.#field_ident.as_mut() {
+                                        Some(c) => c.extend(Some(#each_ident)),
+                                        None => {
+                                            let mut c = #raw_ty::new();
+                                            c.extend(Some(#each_ident));
+                                            self.#field_ident = Some(c);
+                                        }
+                                    }
+
+                                    #builder_ident {
+                                        #(#req_moves,)*
+                                        #(#opt_moves,)*
+                                    }
+                                }
+                            }
+                        );
+
+                        if field_ident.clone().unwrap() != each {
+                            opt_setters.push(opt_setter);
+                        }
+                    } else {
+                        opt_setters.push(opt_setter);
+                    }
                 }
 
                 // Setting the value of a required field.
@@ -180,10 +225,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         }
                     };
 
-                    let repeated = attrs.iter().find_map(|attr| match attr {
-                        FieldAttr::Repeat { each, new, ext } => Some((each, new, ext)),
-                        FieldAttr::Default => None,
-                    });
+                    let repeated_attr = attrs.repeated();
 
                     // When setting a required field, we need to move the other required fields
                     // into the new state. So we pick the moves before and after this field.
@@ -198,17 +240,29 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                     // When we set the value of a required field, we must change to a state in
                     // which the parameter corresponding to that field is set to `true`.
-                    req_setters.push(
-                        if let Some((each, new, _)) = repeated {
-                            let raw_ty = if let syn::Type::Path(type_path) = field_ty {
-                                &type_path.path.segments[0].ident
-                            } else {
-                                return BuilderError::UnsupportedType(field_ty.clone()).into();
-                            };
-                            let inner_ty = wrapped_in(field_ty, None);
-                            let each_ident = syn::Ident::new(each.as_str(), req_field.span());
-                            let new_ident = syn::Ident::new(new.as_str(), req_field.span());
+                    let req_setter = quote! {
+                        pub fn #field_ident(self, #field_ident: #field_ty) ->
+                            #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#before_pn,)* true, #(#after_pn,)* #(#st_ty_pn,)*>
+                        {
+                            #builder_ident {
+                                #(#before_req_moves,)*
+                                #field_ident: Some(#field_ident),
+                                #(#after_req_moves,)*
+                                #(#opt_moves,)*
+                            }
+                        }
+                    };
 
+                    if let Some(each) = repeated_attr {
+                        let raw_ty = if let syn::Type::Path(type_path) = field_ty {
+                            &type_path.path.segments[0].ident
+                        } else {
+                            return BuilderError::UnsupportedType(field_ty.clone()).into();
+                        };
+                        let inner_ty = wrapped_in(field_ty, None);
+                        let each_ident = syn::Ident::new(each.as_str(), req_field.span());
+
+                        req_setters.push(
                             quote! {
                                 pub fn #each_ident(mut self, #each_ident: #inner_ty) ->
                                     #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#before_pn,)* true, #(#after_pn,)* #(#st_ty_pn,)*>
@@ -216,7 +270,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                     match self.#field_ident.as_mut() {
                                         Some(c) => c.extend(Some(#each_ident)),
                                         None => {
-                                            let mut c = #raw_ty::#new_ident();
+                                            let mut c = #raw_ty::new();
                                             c.extend(Some(#each_ident));
                                             self.#field_ident = Some(c);
                                         }
@@ -228,21 +282,14 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                     }
                                 }
                             }
-                        } else {
-                            quote! {
-                                pub fn #field_ident(self, #field_ident: #field_ty) ->
-                                    #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#before_pn,)* true, #(#after_pn,)* #(#st_ty_pn,)*>
-                                {
-                                    #builder_ident {
-                                        #(#before_req_moves,)*
-                                        #field_ident: Some(#field_ident),
-                                        #(#after_req_moves,)*
-                                        #(#opt_moves,)*
-                                    }
-                                }
-                            }
+                        );
+
+                        if field_ident.clone().unwrap() != each {
+                            req_setters.push(req_setter);
                         }
-                    );
+                    } else {
+                        req_setters.push(req_setter);
+                    }
                 }
 
                 //--- Generating the builder ---//

@@ -1,13 +1,11 @@
 #[derive(tidy_builder::Builder)]
-struct MyStruct<'a> {
+struct MyStruct {
     #[builder(each = "arg")]
-    args: Vec<&'a str>,
+    args: Option<Vec<usize>>,
 }
 
 fn main() {
-    let m = MyStruct::builder().arg("arg1").arg("arg2").build();
+    let my_struct = MyStruct::builder().arg(1).build();
 
-    assert_eq!(m.args.len(), 2);
-    assert!(m.args.contains(&"arg1"));
-    assert!(m.args.contains(&"arg2"));
+    assert_eq!(my_struct.args.unwrap(), vec![1]);
 }

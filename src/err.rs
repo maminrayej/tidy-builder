@@ -5,7 +5,7 @@ pub enum BuilderError {
     UnitStruct(syn::Fields),
     NotMetaList(syn::Attribute),
     UnexpectedName(syn::Ident, String),
-    NonStrValue(syn::Lit),
+    NotStrValue(syn::Lit),
     NotNameValue(syn::NestedMeta),
     EmptyInnerMeta(syn::NestedMeta),
     NotExpectedLit(syn::Lit),
@@ -47,7 +47,7 @@ impl From<BuilderError> for proc_macro::TokenStream {
                     .into_compile_error()
                     .into()
             }
-            BuilderError::NonStrValue(lit) => {
+            BuilderError::NotStrValue(lit) => {
                 syn::Error::new_spanned(lit, "Literal must be a string")
                     .into_compile_error()
                     .into()
