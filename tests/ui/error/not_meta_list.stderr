@@ -1,0 +1,5 @@
+error: Provided attribute cannot be parsed as a meta list
+ --> tests/ui/error/not_meta_list.rs:3:5
+  |
+3 |     #[builder]
+  |     ^^^^^^^^^^

@@ -7,7 +7,6 @@ pub enum BuilderError {
     UnexpectedName(syn::Ident, String),
     NotStrValue(syn::Lit),
     NotNameValue(syn::NestedMeta),
-    EmptyInnerMeta(syn::NestedMeta),
     NotExpectedLit(syn::Lit),
     NestedMetaList(syn::MetaList),
     UnknownAttr(syn::Meta),
@@ -57,12 +56,6 @@ impl From<BuilderError> for proc_macro::TokenStream {
                     .into_compile_error()
                     .into()
             }
-            BuilderError::EmptyInnerMeta(nested_meta) => syn::Error::new_spanned(
-                nested_meta,
-                "Nested meta is empty. It must at least contain one element.",
-            )
-            .into_compile_error()
-            .into(),
             BuilderError::NotExpectedLit(lit) => {
                 syn::Error::new_spanned(lit, "Not expected a literal inner meta")
                     .into_compile_error()

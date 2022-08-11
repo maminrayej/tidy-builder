@@ -1,0 +1,5 @@
+error: Unknown attribute
+ --> tests/ui/error/unexpected_name_for_path_attrs.rs:3:15
+  |
+3 |     #[builder(unknown)]
+  |               ^^^^^^^
