@@ -1,0 +1,5 @@
+error: Literal must be a string
+ --> tests/ui/error/not_string_value.rs:3:22
+  |
+3 |     #[builder(each = 1)]
+  |                      ^

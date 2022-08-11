@@ -1,0 +1,9 @@
+error[E0308]: mismatched types
+ --> tests/ui/repeated_setters_with_the_same_name.rs:9:15
+  |
+9 |         .args(vec![])
+  |               ^^^^^^ expected struct `String`, found struct `Vec`
+  |
+  = note: expected struct `String`
+             found struct `Vec<_>`
+  = note: this error originates in the macro `vec` (in Nightly builds, run with -Z macro-backtrace for more info)
