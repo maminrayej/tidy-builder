@@ -12,6 +12,7 @@ pub enum BuilderError {
     NestedMetaList(syn::MetaList),
     UnknownAttr(syn::Meta),
     UnsupportedType(syn::Type),
+    SkipRequired(syn::Field),
 }
 
 impl From<BuilderError> for proc_macro::TokenStream {
@@ -74,6 +75,11 @@ impl From<BuilderError> for proc_macro::TokenStream {
             }
             BuilderError::UnsupportedType(ty) => {
                 syn::Error::new_spanned(ty, "Only segmented paths are supported")
+                    .into_compile_error()
+                    .into()
+            }
+            BuilderError::SkipRequired(field) => {
+                syn::Error::new_spanned(field, "Cannot skip a required field")
                     .into_compile_error()
                     .into()
             }

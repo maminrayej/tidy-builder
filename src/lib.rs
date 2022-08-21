@@ -196,6 +196,11 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let field_ident = &def_field.ident;
                     let field_ty = &def_field.ty;
 
+                    let skip = f_attrs[def_field].skip();
+                    if skip {
+                        continue;
+                    }
+
                     def_setters.push(
                         quote! {
                             pub fn #field_ident(mut self, #field_ident: #field_ty) ->
@@ -220,6 +225,11 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             return err.into();
                         }
                     };
+
+                    let skip = f_attrs[opt_field].skip();
+                    if skip {
+                        continue;
+                    }
 
                     let repeated_attr = attrs.repeated();
 
@@ -285,6 +295,11 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             return err.into();
                         }
                     };
+
+                    let skip = f_attrs[req_field].skip();
+                    if skip {
+                        return BuilderError::SkipRequired((*req_field).clone()).into();
+                    }
 
                     let repeated_attr = attrs.repeated();
 
