@@ -9,8 +9,9 @@ pub enum FieldAttr {
     // #[builder(each = "each")
     Repeat(String),
 
-    // #[builder(default)]
-    Default,
+    // #[builder(default = 0.0)] // name value
+    // #[builder(default)] // path
+    Default(Option<syn::Lit>),
 }
 
 // #[builder(each = "each")]
@@ -37,6 +38,8 @@ fn attr_kind(
             syn::Meta::NameValue(name_value) => {
                 if name_value.path.segments[0].ident == "each" {
                     Ok(FieldAttrKind::Repeat)
+                } else if name_value.path.segments[0].ident == "default" {
+                    Ok(FieldAttrKind::Default)
                 } else {
                     Err(BuilderError::UnknownAttr(meta.clone()))
                 }
@@ -74,6 +77,7 @@ fn parse_name_value(nested: &syn::NestedMeta, expected_name: &str) -> Result<Str
         Err(BuilderError::NotNameValue(nested.clone()))
     }
 }
+
 // Returns the parsed #[builder(each = "each")] attribute.
 fn parse_repeated(
     nested: &syn::punctuated::Punctuated<syn::NestedMeta, syn::token::Comma>,
@@ -81,6 +85,21 @@ fn parse_repeated(
     let each = parse_name_value(&nested[0], "each")?;
 
     Ok(FieldAttr::Repeat(each))
+}
+
+fn parse_default(
+    nested: &syn::punctuated::Punctuated<syn::NestedMeta, syn::token::Comma>,
+) -> Result<FieldAttr, BuilderError> {
+    if let syn::NestedMeta::Meta(syn::Meta::NameValue(syn::MetaNameValue { lit, .. })) = &nested[0]
+    {
+        return Ok(FieldAttr::Default(Some(lit.clone())));
+    }
+
+    if let syn::NestedMeta::Meta(syn::Meta::Path(_)) = &nested[0] {
+        return Ok(FieldAttr::Default(None));
+    }
+
+    unreachable!()
 }
 
 // Parses and returns the attributes of the `field`.
@@ -91,7 +110,7 @@ pub fn parse_attrs(field: &syn::Field) -> Result<FieldAttrs, BuilderError> {
         if let Ok(syn::Meta::List(syn::MetaList { nested, .. })) = raw_attr.parse_meta() {
             let parsed_attr = match attr_kind(&nested)? {
                 FieldAttrKind::Repeat => parse_repeated(&nested)?,
-                FieldAttrKind::Default => FieldAttr::Default,
+                FieldAttrKind::Default => parse_default(&nested)?,
             };
 
             parsed_attrs.push(parsed_attr);
@@ -106,14 +125,20 @@ pub fn parse_attrs(field: &syn::Field) -> Result<FieldAttrs, BuilderError> {
 pub struct FieldAttrs(Vec<FieldAttr>);
 
 impl FieldAttrs {
-    pub fn is_default(&self) -> bool {
-        self.0.iter().any(|attr| matches!(attr, FieldAttr::Default))
+    pub fn is_default(&self) -> Option<Option<syn::Lit>> {
+        self.0.iter().find_map(|attr| {
+            if let FieldAttr::Default(default) = attr {
+                Some(default.clone())
+            } else {
+                None
+            }
+        })
     }
 
     pub fn repeated(&self) -> Option<&String> {
         self.0.iter().find_map(|attr| match attr {
             FieldAttr::Repeat(each) => Some(each),
-            FieldAttr::Default => None,
+            FieldAttr::Default(_) => None,
         })
     }
 }
