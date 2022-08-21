@@ -3,6 +3,8 @@ mod err;
 mod gen;
 mod wrap;
 
+use std::collections::HashMap;
+
 use attr::*;
 use err::*;
 use gen::*;
@@ -20,6 +22,21 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
                 let fields = named;
                 let struct_ident = ast.ident.clone();
+
+                // Map each field to its parsed attributes.
+                let mut f_attrs: HashMap<&syn::Field, FieldAttrs> =
+                    HashMap::with_capacity(fields.len());
+
+                for field in &fields {
+                    let attrs = match parse_attrs(field) {
+                        Ok(attrs) => attrs,
+                        Err(err) => {
+                            return err.into();
+                        }
+                    };
+
+                    f_attrs.insert(field, attrs);
+                }
 
                 // In the definition below, the boundary of each value is depicted.
                 //
@@ -49,9 +66,21 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 let (st_lt_p, st_ct_p, st_ty_p) = split_params(st_params);
 
                 //--- Builder generic parameters ---//
-                let (optional_fields, required_fields): (Vec<_>, Vec<_>) = fields
-                    .iter()
-                    .partition(|field| is_option(&field.ty).is_some());
+                let mut required_fields = vec![];
+                let mut optional_fields = vec![];
+                let mut default_fields = vec![];
+                for field in &fields {
+                    let is_default = f_attrs[field].is_default().is_some();
+                    let is_option = is_option(&field.ty).is_some();
+
+                    if is_option {
+                        optional_fields.push(field);
+                    } else if is_default {
+                        default_fields.push(field);
+                    } else {
+                        required_fields.push(field);
+                    }
+                }
 
                 // Contains all the builder parameters as `false`.
                 // So it helps to create:
@@ -128,6 +157,21 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     b_ct_p.push(quote! { const #ct_param_ident: bool });
                 }
 
+                let mut def_moves = vec![];
+                for field in &default_fields {
+                    let field_ident = &field.ident;
+                    let field_ty = &field.ty;
+                    let default_value = match f_attrs[field].is_default().unwrap() {
+                        Some(value) => quote! { #value },
+                        None => quote! { Default::default() },
+                    };
+
+                    b_fields.push(quote! { #field_ident: #field_ty });
+                    b_inits.push(quote! { #field_ident: #default_value });
+
+                    def_moves.push(quote! { #field_ident: self.#field_ident });
+                }
+
                 // When we set the value of an optional field, we must create the current state in the
                 // state machine but set the optional field. For that matter,
                 // we need to move the fields from the previous state to the new one.
@@ -147,6 +191,23 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 //--- State machine actions: Setters ---//
 
                 // Setting the value of an optional field:
+                let mut def_setters = vec![];
+                for def_field in &default_fields {
+                    let field_ident = &def_field.ident;
+                    let field_ty = &def_field.ty;
+
+                    def_setters.push(
+                        quote! {
+                            pub fn #field_ident(mut self, #field_ident: #field_ty) ->
+                                #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
+                            {
+                                self.#field_ident = #field_ident;
+                                self
+                            }
+                        }
+                    );
+                }
+
                 let mut opt_setters = vec![];
                 for opt_field in &optional_fields {
                     let field_ident = &opt_field.ident;
@@ -249,6 +310,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                                 #field_ident: Some(#field_ident),
                                 #(#after_req_moves,)*
                                 #(#opt_moves,)*
+                                #(#def_moves,)*
                             }
                         }
                     };
@@ -315,6 +377,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         #where_clause
                     {
                         #(#opt_setters)*
+                        #(#def_setters)*
                         #(#req_setters)*
                     }
 
@@ -328,6 +391,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             unsafe {
                                 #struct_ident {
                                     #(#opt_moves,)*
+                                    #(#def_moves,)*
                                     #(#req_unwraps,)*
                                 }
                             }

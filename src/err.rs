@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub enum BuilderError {
     Enum(syn::DataEnum),
     Union(syn::DataUnion),
