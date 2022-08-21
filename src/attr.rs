@@ -3,6 +3,7 @@ use crate::err::BuilderError;
 pub enum FieldAttrKind {
     Repeat,
     Default,
+    Skip,
 }
 
 pub enum FieldAttr {
@@ -12,6 +13,8 @@ pub enum FieldAttr {
     // #[builder(default = 0.0)] // name value
     // #[builder(default)] // path
     Default(Option<syn::Lit>),
+
+    Skip,
 }
 
 // #[builder(each = "each")]
@@ -31,6 +34,8 @@ fn attr_kind(
             syn::Meta::Path(path) => {
                 if path.segments[0].ident == "default" {
                     Ok(FieldAttrKind::Default)
+                } else if path.segments[0].ident == "skip" {
+                    Ok(FieldAttrKind::Skip)
                 } else {
                     Err(BuilderError::UnknownAttr(meta.clone()))
                 }
@@ -111,6 +116,7 @@ pub fn parse_attrs(field: &syn::Field) -> Result<FieldAttrs, BuilderError> {
             let parsed_attr = match attr_kind(&nested)? {
                 FieldAttrKind::Repeat => parse_repeated(&nested)?,
                 FieldAttrKind::Default => parse_default(&nested)?,
+                FieldAttrKind::Skip => FieldAttr::Skip,
             };
 
             parsed_attrs.push(parsed_attr);
@@ -125,6 +131,10 @@ pub fn parse_attrs(field: &syn::Field) -> Result<FieldAttrs, BuilderError> {
 pub struct FieldAttrs(Vec<FieldAttr>);
 
 impl FieldAttrs {
+    pub fn skip(&self) -> bool {
+        self.0.iter().any(|attr| matches!(&attr, FieldAttr::Skip))
+    }
+
     pub fn is_default(&self) -> Option<Option<syn::Lit>> {
         self.0.iter().find_map(|attr| {
             if let FieldAttr::Default(default) = attr {
@@ -136,9 +146,12 @@ impl FieldAttrs {
     }
 
     pub fn repeated(&self) -> Option<&String> {
-        self.0.iter().find_map(|attr| match attr {
-            FieldAttr::Repeat(each) => Some(each),
-            FieldAttr::Default(_) => None,
+        self.0.iter().find_map(|attr| {
+            if let FieldAttr::Repeat(each) = attr {
+                Some(each)
+            } else {
+                None
+            }
         })
     }
 }
