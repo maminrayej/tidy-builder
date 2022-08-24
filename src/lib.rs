@@ -10,7 +10,8 @@ use err::*;
 use gen::*;
 use wrap::*;
 
-use quote::quote;
+use convert_case::{Case, Casing};
+use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 
 #[proc_macro_derive(Builder, attributes(builder))]
@@ -369,6 +370,47 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }
                 }
 
+                // HasProp1, HasProp2 trait definitions and their implementation
+                // for the builder
+                let mut constraint_traits = vec![];
+                let mut constraint_traits_idents = vec![];
+                for (field_idx, field) in required_fields.iter().enumerate() {
+                    let field_camel = field
+                        .ident
+                        .as_ref()
+                        .unwrap()
+                        .to_string()
+                        .to_case(Case::UpperCamel);
+                    let trait_name = format_ident!("Has{}", field_camel);
+
+                    // we need all the generic parameters except for the field's const bool one
+
+                    // impl <...> #trait_name for Builder<...>
+                    //        ^--left               right--^
+                    let mut generic_const_pars_left = vec![];
+                    let mut generic_const_pars_right = vec![];
+
+                    for (const_par_idx, const_param_name) in b_ct_pn.iter().enumerate() {
+                        if field_idx == const_par_idx {
+                            generic_const_pars_right.push(quote! { true });
+                        } else {
+                            generic_const_pars_left.push(quote! { const #const_param_name : bool });
+                            generic_const_pars_right.push(quote! { #const_param_name });
+                        }
+                    }
+
+                    constraint_traits.push(quote! {
+                        trait #trait_name {}
+
+                        impl<#(#st_lt_p,)* #(#st_ct_p,)* #(#generic_const_pars_left,)* #(#st_ty_p,)*>
+                            #trait_name for
+                            #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#generic_const_pars_right,)* #(#st_ty_pn,)* >
+                            #where_clause { }
+                    });
+
+                    constraint_traits_idents.push(trait_name);
+                }
+
                 //--- Generating the builder ---//
                 quote! {
                     // Definition of the builder struct.
@@ -394,15 +436,10 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         #(#opt_setters)*
                         #(#def_setters)*
                         #(#req_setters)*
-                    }
 
-                    // impl block on a builder with all of its parameters set to true.
-                    // Meaning it's in the final state and can actually build the given struct.
-                    impl<#(#st_lt_p,)* #(#st_ct_p,)* #(#st_ty_p,)*>
-                        #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#all_true,)* #(#st_ty_pn,)* >
-                        #where_clause
-                    {
-                        fn build(self) -> #struct_ident #ty_generics {
+                        fn build(self) -> #struct_ident #ty_generics
+                            where Self: #(#constraint_traits_idents)+*
+                        {
                             unsafe {
                                 #struct_ident {
                                     #(#opt_moves,)*
@@ -412,6 +449,8 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                             }
                         }
                     }
+
+                    #(#constraint_traits)*
 
                 }
                 .into()
