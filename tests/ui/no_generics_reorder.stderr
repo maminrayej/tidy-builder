@@ -1,11 +1,13 @@
-error[E0599]: no method named `build` found for struct `MyStructBuilder<true, false>` in the current scope
+error[E0277]: the trait bound `MyStructBuilder<true, false>: HasReq2` is not satisfied
   --> tests/ui/no_generics_reorder.rs:11:10
    |
-1  | #[derive(tidy_builder::Builder)]
-   |          --------------------- method `build` not found for this
-...
 11 |         .build();
-   |          ^^^^^ method not found in `MyStructBuilder<true, false>`
+   |          ^^^^^ the trait `HasReq2` is not implemented for `MyStructBuilder<true, false>`
    |
-   = note: the method was found for
-           - `MyStructBuilder<true, true>`
+   = help: the trait `HasReq2` is implemented for `MyStructBuilder<P0, true>`
+note: required by a bound in `MyStructBuilder::<P0, P1>::build`
+  --> tests/ui/no_generics_reorder.rs:1:10
+   |
+1  | #[derive(tidy_builder::Builder)]
+   |          ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `MyStructBuilder::<P0, P1>::build`
+   = note: this error originates in the derive macro `tidy_builder::Builder` (in Nightly builds, run with -Z macro-backtrace for more info)
