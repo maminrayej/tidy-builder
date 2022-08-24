@@ -1,11 +1,27 @@
-error[E0599]: no method named `build` found for struct `MyStructBuilder<false, false, String>` in the current scope
+error[E0277]: the trait bound `MyStructBuilder<false, false, String>: HasReq1` is not satisfied
   --> tests/ui/generics_without_bounds.rs:11:10
    |
-1  | #[derive(tidy_builder::Builder)]
-   |          --------------------- method `build` not found for this
-...
 11 |         .build();
-   |          ^^^^^ method not found in `MyStructBuilder<false, false, String>`
+   |          ^^^^^ the trait `HasReq1` is not implemented for `MyStructBuilder<false, false, String>`
    |
-   = note: the method was found for
-           - `MyStructBuilder<true, true, T>`
+   = help: the trait `HasReq1` is implemented for `MyStructBuilder<true, P1, T>`
+note: required by a bound in `MyStructBuilder::<P0, P1, T>::build`
+  --> tests/ui/generics_without_bounds.rs:1:10
+   |
+1  | #[derive(tidy_builder::Builder)]
+   |          ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `MyStructBuilder::<P0, P1, T>::build`
+   = note: this error originates in the derive macro `tidy_builder::Builder` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `MyStructBuilder<false, false, String>: HasReq2` is not satisfied
+  --> tests/ui/generics_without_bounds.rs:11:10
+   |
+11 |         .build();
+   |          ^^^^^ the trait `HasReq2` is not implemented for `MyStructBuilder<false, false, String>`
+   |
+   = help: the trait `HasReq2` is implemented for `MyStructBuilder<P0, true, T>`
+note: required by a bound in `MyStructBuilder::<P0, P1, T>::build`
+  --> tests/ui/generics_without_bounds.rs:1:10
+   |
+1  | #[derive(tidy_builder::Builder)]
+   |          ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `MyStructBuilder::<P0, P1, T>::build`
+   = note: this error originates in the derive macro `tidy_builder::Builder` (in Nightly builds, run with -Z macro-backtrace for more info)
