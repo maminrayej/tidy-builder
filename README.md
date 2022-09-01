@@ -100,3 +100,37 @@ impl MyStructBuilder<true, true> {
     }
 }
 ```
+
+
+### Nightly features
+
+#### Better error messages
+
+In case of a missing fields, error message are like this:
+
+```
+   |
+19 |         .build();
+   |          ^^^^^ the trait `HasReq1` is not implemented for ...
+   |
+```
+
+Which means `req1` is missing. If you are using a **nightly** rust compiler, you can
+have better error messages:
+
+```
+error[E0277]: missing `field2`
+  --> src/main.rs:13:10
+   |
+13 |         .build();
+   |          ^^^^^ provide `field2` before calling `.build()`
+   |
+```
+
+To enable this feature add `better_error` to the crate feature list:
+
+```toml
+tidy-builder = { version="*", features=["better_error"] }
+```
+
+then add `#![feature(rustc_attrs)]` at the top of your root level crate.

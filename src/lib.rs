@@ -375,12 +375,8 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 let mut constraint_traits = vec![];
                 let mut constraint_traits_idents = vec![];
                 for (field_idx, field) in required_fields.iter().enumerate() {
-                    let field_camel = field
-                        .ident
-                        .as_ref()
-                        .unwrap()
-                        .to_string()
-                        .to_case(Case::UpperCamel);
+                    let field_name = field.ident.as_ref().unwrap().to_string();
+                    let field_camel = field_name.to_case(Case::UpperCamel);
                     let trait_name = format_ident!("Has{}", field_camel);
 
                     // we need all the generic parameters except for the field's const bool one
@@ -399,7 +395,22 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         }
                     }
 
+                    let mut error_message = None;
+                    // this feature uses `#[rustc_on_unimplemented]` which is only available
+                    // in a nightly compiler.
+                    if cfg!(feature = "better_error") {
+                        let message = format!("missing `{}`", &field_name);
+                        let label = format!("provide `{}` before calling `.build()`", &field_name);
+                        error_message = Some(quote! {
+                            #[rustc_on_unimplemented(
+                                message=#message,
+                                label=#label,
+                            )]
+                        });
+                    }
+
                     constraint_traits.push(quote! {
+                        #error_message
                         trait #trait_name {}
 
                         impl<#(#st_lt_p,)* #(#st_ct_p,)* #(#generic_const_pars_left,)* #(#st_ty_p,)*>
