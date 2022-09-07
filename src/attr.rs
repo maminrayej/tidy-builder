@@ -1,50 +1,32 @@
 use crate::err::BuilderError;
 
-pub enum FieldAttrKind {
-    Repeat,
-    Default,
-    Skip,
-}
-
 pub enum FieldAttr {
-    // #[builder(each = "each")
     Repeat(String),
-
-    // #[builder(default = 0.0)] // name value
-    // #[builder(default)] // path
     Default(Option<syn::Lit>),
-
     Skip,
 }
 
-// #[builder(each = "each")]
-//           -------------
-//            nested meta
-//
-// # Arguments
-// `nested`: List of comma seperated nested metas.
-//
-// # Returns
-// The attribute kind based on the first nested meta.
-fn attr_kind(
+fn parse_attr(
     nested: &syn::punctuated::Punctuated<syn::NestedMeta, syn::token::Comma>,
-) -> Result<FieldAttrKind, BuilderError> {
+) -> Result<FieldAttr, BuilderError> {
     match &nested[0] {
         syn::NestedMeta::Meta(meta) => match meta {
             syn::Meta::Path(path) => {
                 if path.segments[0].ident == "default" {
-                    Ok(FieldAttrKind::Default)
+                    Ok(FieldAttr::Default(None))
                 } else if path.segments[0].ident == "skip" {
-                    Ok(FieldAttrKind::Skip)
+                    Ok(FieldAttr::Skip)
                 } else {
                     Err(BuilderError::UnknownAttr(meta.clone()))
                 }
             }
             syn::Meta::NameValue(name_value) => {
                 if name_value.path.segments[0].ident == "each" {
-                    Ok(FieldAttrKind::Repeat)
+                    let each = parse_name_value(name_value)?;
+
+                    Ok(FieldAttr::Repeat(each))
                 } else if name_value.path.segments[0].ident == "default" {
-                    Ok(FieldAttrKind::Default)
+                    Ok(FieldAttr::Default(Some(name_value.lit.clone())))
                 } else {
                     Err(BuilderError::UnknownAttr(meta.clone()))
                 }
@@ -55,56 +37,12 @@ fn attr_kind(
     }
 }
 
-// Tries to parse the provided `nested` as a name-value meta.
-// It returns the value only if the name is equal to the `expected_name`.
-fn parse_name_value(nested: &syn::NestedMeta, expected_name: &str) -> Result<String, BuilderError> {
-    if let syn::NestedMeta::Meta(syn::Meta::NameValue(syn::MetaNameValue { path, lit, .. })) =
-        nested
-    {
-        // Make sure the name is what it's expected.
-        let name = &path.segments[0].ident;
-        if name != expected_name {
-            return Err(BuilderError::UnexpectedName(
-                name.clone(),
-                expected_name.to_string(),
-            ));
-        }
-
-        // Compute the string value.
-        let value = if let syn::Lit::Str(lit_str) = lit {
-            lit_str.value()
-        } else {
-            return Err(BuilderError::NotStrValue(lit.clone()));
-        };
-
-        Ok(value)
+fn parse_name_value(name_value: &syn::MetaNameValue) -> Result<String, BuilderError> {
+    if let syn::Lit::Str(lit_str) = &name_value.lit {
+        Ok(lit_str.value())
     } else {
-        Err(BuilderError::NotNameValue(nested.clone()))
+        Err(BuilderError::NotStrValue(name_value.lit.clone()))
     }
-}
-
-// Returns the parsed #[builder(each = "each")] attribute.
-fn parse_repeated(
-    nested: &syn::punctuated::Punctuated<syn::NestedMeta, syn::token::Comma>,
-) -> Result<FieldAttr, BuilderError> {
-    let each = parse_name_value(&nested[0], "each")?;
-
-    Ok(FieldAttr::Repeat(each))
-}
-
-fn parse_default(
-    nested: &syn::punctuated::Punctuated<syn::NestedMeta, syn::token::Comma>,
-) -> Result<FieldAttr, BuilderError> {
-    if let syn::NestedMeta::Meta(syn::Meta::NameValue(syn::MetaNameValue { lit, .. })) = &nested[0]
-    {
-        return Ok(FieldAttr::Default(Some(lit.clone())));
-    }
-
-    if let syn::NestedMeta::Meta(syn::Meta::Path(_)) = &nested[0] {
-        return Ok(FieldAttr::Default(None));
-    }
-
-    unreachable!()
 }
 
 // Parses and returns the attributes of the `field`.
@@ -113,13 +51,7 @@ pub fn parse_attrs(field: &syn::Field) -> Result<FieldAttrs, BuilderError> {
 
     for raw_attr in &field.attrs {
         if let Ok(syn::Meta::List(syn::MetaList { nested, .. })) = raw_attr.parse_meta() {
-            let parsed_attr = match attr_kind(&nested)? {
-                FieldAttrKind::Repeat => parse_repeated(&nested)?,
-                FieldAttrKind::Default => parse_default(&nested)?,
-                FieldAttrKind::Skip => FieldAttr::Skip,
-            };
-
-            parsed_attrs.push(parsed_attr);
+            parsed_attrs.push(parse_attr(&nested)?);
         } else {
             return Err(BuilderError::NotMetaList(raw_attr.clone()));
         }

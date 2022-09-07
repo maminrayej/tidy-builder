@@ -14,6 +14,16 @@ use convert_case::{Case, Casing};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 
+macro_rules! ret_on_err {
+    ($e: expr) => {
+        match $e {
+            Ok(value) => value,
+            Err(err) => {
+                return err.into();
+            }
+        }
+    };
+}
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = syn::parse_macro_input!(input as syn::DeriveInput);
@@ -22,19 +32,12 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         syn::Data::Struct(struct_t) => match struct_t.fields {
             syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
                 let fields = named;
-                let struct_ident = ast.ident.clone();
+                let s_ident = ast.ident.clone();
 
                 // Map each field to its parsed attributes.
-                let mut f_attrs: HashMap<&syn::Field, FieldAttrs> =
-                    HashMap::with_capacity(fields.len());
-
+                let mut f_attrs = HashMap::with_capacity(fields.len());
                 for field in &fields {
-                    let attrs = match parse_attrs(field) {
-                        Ok(attrs) => attrs,
-                        Err(err) => {
-                            return err.into();
-                        }
-                    };
+                    let attrs = ret_on_err!(parse_attrs(field));
 
                     f_attrs.insert(field, attrs);
                 }
@@ -50,8 +53,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 //  2: where_clause
                 let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
-                let builder_ident =
-                    syn::Ident::new(&format!("{struct_ident}Builder"), struct_ident.span());
+                let builder_ident = syn::Ident::new(&format!("{s_ident}Builder"), s_ident.span());
 
                 //--- Struct generic Parameters ---//
                 let st_param_names = param_to_name(&ast.generics);
@@ -83,45 +85,13 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }
                 }
 
-                // Contains all the builder parameters as `false`.
-                // So it helps to create:
-                //      `Builder<false, false, false>`.
                 let mut all_false = vec![];
-
-                // Contains all the builder parameters as `true`.
-                // So it helps to create:
-                //      `Builder<true, true, true>`.
                 let mut all_true = vec![];
 
-                // Contains the names of all builder parameters
-                // So it helps to create:
-                //      `Builder<P0, P1, P2>`.
                 let mut b_ct_pn = vec![];
-
-                // Contains all builder parameters
-                // So it helps to create:
-                //      `Builder<const P0: bool, const P1: bool, const P2: bool>`.
                 let mut b_ct_p = vec![];
 
-                // Contains all the fields of the builder.
-                // For example if the struct is:
-                //      struct MyStruct {
-                //          foo: Option<String>,
-                //          bar: usize
-                //      }
-                // The fields of the builder gonna be:
-                //      struct MyStructBuilder {
-                //          foo: Option<String>,
-                //          bar: Option<usize>
-                //      }
                 let mut b_fields = vec![];
-
-                // Contains all the initializers of the builder struct.
-                // For example for the builder on the comment above it's going to be:
-                //      MyStructBuilder {
-                //          foo: None,
-                //          bar: None
-                //      }
                 let mut b_inits = vec![];
 
                 // When we set the value of a required field, we must create the next state in the
@@ -131,13 +101,6 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 // When we reach the final state of the state machine and want to build the struct,
                 // we will call `unwrap` on the required fields because we know they are not `None`.
-                // For example:
-                //      fn builder(self) -> MyStruct {
-                //          MyStruct {
-                //              foo: self.foo,
-                //              bar: self.bar.unwrap()
-                //          }
-                //      }
                 // This variable contains the unwraps of required fields.
                 let mut req_unwraps = vec![];
 
@@ -149,13 +112,14 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     b_fields.push(quote! { #field_ident: ::std::option::Option<#field_ty> });
                     b_inits.push(quote! { #field_ident: None });
 
-                    req_moves.push(quote! { #field_ident: self.#field_ident });
-                    req_unwraps.push(quote! { #field_ident: self.#field_ident.unwrap_unchecked() });
+                    b_ct_p.push(quote! { const #ct_param_ident: bool });
+                    b_ct_pn.push(quote! { #ct_param_ident });
 
                     all_false.push(quote! { false });
                     all_true.push(quote! { true });
-                    b_ct_pn.push(quote! { #ct_param_ident });
-                    b_ct_p.push(quote! { const #ct_param_ident: bool });
+
+                    req_moves.push(quote! { #field_ident: self.#field_ident });
+                    req_unwraps.push(quote! { #field_ident: self.#field_ident.unwrap_unchecked() });
                 }
 
                 let mut def_moves = vec![];
@@ -197,8 +161,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let field_ident = &def_field.ident;
                     let field_ty = &def_field.ty;
 
-                    let skip = f_attrs[def_field].skip();
-                    if skip {
+                    if f_attrs[def_field].skip() {
                         continue;
                     }
 
@@ -220,22 +183,12 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let field_ty = &opt_field.ty;
                     let inner_ty = is_option(field_ty).unwrap();
 
-                    let attrs = match parse_attrs(opt_field) {
-                        Ok(attrs) => attrs,
-                        Err(err) => {
-                            return err.into();
-                        }
-                    };
-
-                    let skip = f_attrs[opt_field].skip();
-                    if skip {
+                    if f_attrs[opt_field].skip() {
                         continue;
                     }
 
-                    let repeated_attr = attrs.repeated();
+                    let repeated_attr = f_attrs[opt_field].repeated();
 
-                    // When we set an optional field, we stay in the same state.
-                    // Therefore, we just need to set the value of the optional field.
                     let opt_setter = quote! {
                         pub fn #field_ident(mut self, #field_ident: #inner_ty) ->
                             #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
@@ -290,19 +243,11 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let field_ident = &req_field.ident;
                     let field_ty = &req_field.ty;
 
-                    let attrs = match parse_attrs(req_field) {
-                        Ok(attrs) => attrs,
-                        Err(err) => {
-                            return err.into();
-                        }
-                    };
-
-                    let skip = f_attrs[req_field].skip();
-                    if skip {
+                    if f_attrs[req_field].skip() {
                         return BuilderError::SkipRequired((*req_field).clone()).into();
                     }
 
-                    let repeated_attr = attrs.repeated();
+                    let repeated_attr = f_attrs[req_field].repeated();
 
                     // When setting a required field, we need to move the other required fields
                     // into the new state. So we pick the moves before and after this field.
@@ -424,14 +369,11 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 //--- Generating the builder ---//
                 quote! {
-                    // Definition of the builder struct.
                     pub struct #builder_ident<#(#st_lt_p,)* #(#st_ct_p,)* #(#b_ct_p,)* #(#st_ty_p,)*> #where_clause {
                         #(#b_fields),*
                     }
 
-                    // An impl on the given struct to add the `builder` method to initialize the
-                    // builder.
-                    impl #impl_generics #struct_ident #ty_generics #where_clause {
+                    impl #impl_generics #s_ident #ty_generics #where_clause {
                         pub fn builder() -> #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#all_false,)* #(#st_ty_pn,)*> {
                             #builder_ident {
                                 #(#b_inits),*
@@ -439,7 +381,6 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         }
                     }
 
-                    // impl on the builder containing the setter methods.
                     impl<#(#st_lt_p,)* #(#st_ct_p,)* #(#b_ct_p,)* #(#st_ty_p,)*>
                         #builder_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)* >
                         #where_clause
@@ -448,11 +389,11 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                         #(#def_setters)*
                         #(#req_setters)*
 
-                        fn build(self) -> #struct_ident #ty_generics
+                        fn build(self) -> #s_ident #ty_generics
                             where Self: #(#constraint_traits_idents)+*
                         {
                             unsafe {
-                                #struct_ident {
+                                #s_ident {
                                     #(#opt_moves,)*
                                     #(#def_moves,)*
                                     #(#req_unwraps,)*

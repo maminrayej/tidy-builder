@@ -1,6 +1,3 @@
-use proc_macro2::TokenStream;
-use quote::ToTokens;
-
 // Sometimes we only need the name of a generic parameter.
 // For example in `T: std::fmt::Display`, the whole thing is
 // a generic parameter but we want to extract the `T` from it.
@@ -17,8 +14,8 @@ pub enum GenericParamName {
 }
 
 // We need this trait to be able to interpolate on a vector of `GenericParamName`.
-impl ToTokens for GenericParamName {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
+impl quote::ToTokens for GenericParamName {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         match self {
             GenericParamName::Type(ty) => ty.to_tokens(tokens),
             GenericParamName::Lifetime(lt) => lt.to_tokens(tokens),
