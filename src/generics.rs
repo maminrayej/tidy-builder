@@ -61,8 +61,8 @@ pub fn split_param_names(
 }
 
 // Splits generic parameters into three categories.
-pub fn split_params(
-    params: Vec<syn::GenericParam>,
+pub fn split_params<'a>(
+    params: impl Iterator<Item = &'a syn::GenericParam>,
 ) -> (
     Vec<syn::GenericParam>, // Lifetime generic parameters
     Vec<syn::GenericParam>, // Const generic parameters
