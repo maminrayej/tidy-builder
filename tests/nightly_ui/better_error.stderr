@@ -1,5 +1,5 @@
 error[E0277]: missing `field2`
-  --> tests/ui/better_error.rs:13:10
+  --> tests/nightly_ui/better_error.rs:13:10
    |
 13 |         .build();
    |          ^^^^^ provide `field2` before calling `.build()`
@@ -7,7 +7,7 @@ error[E0277]: missing `field2`
    = help: the trait `HasField2` is not implemented for `ItemBuilder<false>`
    = help: the trait `HasField2` is implemented for `ItemBuilder<true>`
 note: required by a bound in `ItemBuilder::<P0>::build`
-  --> tests/ui/better_error.rs:3:10
+  --> tests/nightly_ui/better_error.rs:3:10
    |
 3  | #[derive(tidy_builder::Builder)]
    |          ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `ItemBuilder::<P0>::build`
