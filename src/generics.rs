@@ -41,9 +41,9 @@ pub fn param_to_name(generics: &syn::Generics) -> Vec<GenericParamName> {
 pub fn split_param_names(
     param_names: Vec<GenericParamName>,
 ) -> (
-    Vec<GenericParamName>, // Lifetime generic parameters
-    Vec<GenericParamName>, // Const generic parameters
-    Vec<GenericParamName>, // Type generic parameters
+    Vec<GenericParamName>, // Lifetime generic parameter names
+    Vec<GenericParamName>, // Const generic parameter names
+    Vec<GenericParamName>, // Type generic parameter names
 ) {
     let mut lifetimes = vec![];
     let mut consts = vec![];

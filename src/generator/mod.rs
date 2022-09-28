@@ -12,31 +12,80 @@ use crate::generics::{param_to_name, split_param_names, split_params, GenericPar
 use crate::wrap::is_option;
 
 pub struct Generator<'a> {
+    // Map from a field to its parsed attributes
     f_attrs: HashMap<&'a syn::Field, FieldAttrs>,
+
+    // Builder name
     b_ident: syn::Ident,
+
+    // Struct name
     s_ident: syn::Ident,
 
+    // Different pieces of a type’s generics required for impl’ing a trait for that type.
+    //
+    // impl<const N: usize, T> Foo<N, T> where T: std::fmt::Display
+    //      -----------------      ----  --------------------------
+    //              0                1               2
+    //
+    // 0: impl_generics
+    // 1: ty_generics
+    // 2: where_clause
     impl_generics: syn::ImplGenerics<'a>,
     ty_generics: syn::TypeGenerics<'a>,
     where_clause: Option<&'a syn::WhereClause>,
 
+    // st_lt_pn: struct's lifetime parameter names
+    // st_ct_pn: struct's const    parameter names
+    // st_ty_pn: struct's type     parameter names
+    //
+    // struct Foo<'a: 'b, const N: usize, T: std::fmt::Display>
+    //            --            -         -
+    //            0             1         2
+    //
+    // 0: st_lt_pn
+    // 1: st_ct_pn
+    // 2: st_ty_pn
     st_lt_pn: Vec<GenericParamName>,
     st_ct_pn: Vec<GenericParamName>,
     st_ty_pn: Vec<GenericParamName>,
 
+    // st_lt_p: struct's lifetime parameters
+    // st_ct_p: struct's const    parameters
+    // st_ty_p: struct's type     parameters
+    //
+    // struct Foo<'a: 'b, const N: usize, T: std::fmt::Display>
+    //            ------  --------------  --------------------
+    //              0            1                  2
+    //
+    // 0: st_lt_p
+    // 1: st_ct_p
+    // 2: st_ty_p
     st_lt_p: Vec<syn::GenericParam>,
     st_ct_p: Vec<syn::GenericParam>,
     st_ty_p: Vec<syn::GenericParam>,
 
+    // Different kinds of fields of the struct
+    //
+    // struct Foo {
+    //    req_filed: usize,
+    //
+    //    opt_field: Option<usize,
+    //
+    //    #[builder(default = 0)]
+    //    def_field: usize
+    // }
     req_fields: Vec<&'a syn::Field>,
     opt_fields: Vec<&'a syn::Field>,
     def_fields: Vec<&'a syn::Field>,
 
+    // All builder const generics set to false.
+    // Represents the initial state of the state machine.
     all_false: Vec<proc_macro2::TokenStream>,
-    all_true: Vec<proc_macro2::TokenStream>,
 
     // b_ct_pn: builder const param names
     // b_ct_p:  builder const params
+    //
+    // Have similar semantics to `s_ct_pn` and `s_ct_p`.
     b_ct_pn: Vec<proc_macro2::TokenStream>,
     b_ct_p: Vec<proc_macro2::TokenStream>,
 
@@ -45,8 +94,8 @@ pub struct Generator<'a> {
     b_fields: Vec<proc_macro2::TokenStream>,
     b_inits: Vec<proc_macro2::TokenStream>,
 
-    // When we set the value of a required field, we must create the next state in the
-    // state machine. For that matter, we need to move the fields from the previous state(previous struct) to the new one(new struct).
+    // When we set the value of a required field, we must create the next state in the state machine.
+    // For that matter, we need to move the fields from the previous state(previous struct) to the new one(new struct).
     // These variables contain the code to move the fields to the new state.
     req_moves: Vec<proc_macro2::TokenStream>,
     opt_moves: Vec<proc_macro2::TokenStream>,
@@ -74,15 +123,6 @@ impl<'a> Generator<'a> {
                         f_attrs.insert(field, attrs);
                     }
 
-                    // In the definition below, the boundary of each value is depicted.
-                    //
-                    // impl<T: std::fmt::Debug> Foo<T> where T: std::fmt::Display
-                    //     --------------------    --- --------------------------
-                    //              0               1               2
-                    //
-                    //  0: impl_generics
-                    //  1: ty_generics
-                    //  2: where_clause
                     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
                     let b_ident = format_ident!("{}Builder", s_ident);
@@ -138,7 +178,6 @@ impl<'a> Generator<'a> {
                         def_fields,
 
                         all_false: vec![],
-                        all_true: vec![],
 
                         b_ct_pn: vec![],
                         b_ct_p: vec![],
@@ -171,7 +210,7 @@ impl<'a> Generator<'a> {
         let opt_setters = self.opt_setters()?;
         let def_setters = self.def_setters()?;
 
-        let (constraint_traits, constraint_traits_idents) = self.constraints();
+        let (guard_traits, guard_trait_idents) = self.guards();
 
         let (
             b_ident,
@@ -240,12 +279,12 @@ impl<'a> Generator<'a> {
                 #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)* >
                 #where_clause
             {
+                #(#req_setters)*
                 #(#opt_setters)*
                 #(#def_setters)*
-                #(#req_setters)*
 
                 fn build(self) -> #s_ident #ty_generics
-                    where Self: #(#constraint_traits_idents)+*
+                    where Self: #(#guard_trait_idents)+*
                 {
                     unsafe {
                         #s_ident {
@@ -257,7 +296,7 @@ impl<'a> Generator<'a> {
                 }
             }
 
-            #(#constraint_traits)*
+            #(#guard_traits)*
         })
     }
 }

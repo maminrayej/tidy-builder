@@ -3,18 +3,19 @@ use syn::spanned::Spanned;
 
 use super::Generator;
 use crate::err::Error;
-use crate::wrap::{is_option, wrapped_in};
+use crate::wrap::{is_option, type_ident, wrapped_in};
 
 impl<'a> Generator<'a> {
+    // Iterates over required fields and generate their corrosponding setters.
     pub fn req_setters(&self) -> Result<Vec<proc_macro2::TokenStream>, Error> {
         let mut req_setters = vec![];
 
-        for (index, req_field) in self.req_fields.iter().enumerate() {
+        for (index, &req_field) in self.req_fields.iter().enumerate() {
             let field_ident = &req_field.ident;
             let field_ty = &req_field.ty;
 
             if self.f_attrs[req_field].should_skip() {
-                return Err(Error::SkipRequired((*req_field).clone()));
+                return Err(Error::SkipRequired(req_field.clone()));
             }
 
             let repeated_attr = self.f_attrs[req_field].repeated();
@@ -32,17 +33,16 @@ impl<'a> Generator<'a> {
 
             // Define these to be able to interpolate in quote.
             let b_ident = &self.b_ident;
-
             let st_lt_pn = &self.st_lt_pn;
             let st_ct_pn = &self.st_ct_pn;
             let st_ty_pn = &self.st_ty_pn;
-
             let req_moves = &self.req_moves;
             let opt_moves = &self.opt_moves;
             let def_moves = &self.def_moves;
 
             // When we set the value of a required field, we must change to a state in
             // which the parameter corresponding to that field is set to `true`.
+            // This is the non-repeated setter.
             let req_setter = quote! {
                 pub fn #field_ident(self, #field_ident: #field_ty) ->
                     #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#before_pn,)* true, #(#after_pn,)* #(#st_ty_pn,)*>
@@ -58,24 +58,21 @@ impl<'a> Generator<'a> {
             };
 
             if let Some(each) = repeated_attr {
-                let raw_ty = if let syn::Type::Path(type_path) = field_ty {
-                    &type_path.path.segments[0].ident
-                } else {
-                    // return Error::UnsupportedType(field_ty.clone()).into();
-                    panic!("Unsupported type")
-                };
-                let inner_ty = wrapped_in(field_ty, None);
+                let container_ident = type_ident(field_ty)?;
+                let item_type = wrapped_in(field_ty, Some("Vec"));
                 let each_ident = syn::Ident::new(each.as_str(), req_field.span());
 
                 req_setters.push(
                     quote! {
-                        pub fn #each_ident(mut self, #each_ident: #inner_ty) ->
+                        pub fn #each_ident(mut self, #each_ident: #item_type) ->
                             #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#before_pn,)* true, #(#after_pn,)* #(#st_ty_pn,)*>
                         {
                             match self.#field_ident.as_mut() {
+                                // If the vector is already created, just extend it using the newly provided value.
                                 Some(c) => c.extend(Some(#each_ident)),
+                                // If not, create an empty `Vec`, extend it using the provided value, and set it.
                                 None => {
-                                    let mut c = #raw_ty::new();
+                                    let mut c = #container_ident::new();
                                     c.extend(Some(#each_ident));
                                     self.#field_ident = Some(c);
                                 }
@@ -89,6 +86,8 @@ impl<'a> Generator<'a> {
                     }
                 );
 
+                // Rust doesn't support function overloading so we can't have two setter functions with the same name.
+                // Prefer the repeated setter over the other setter since the user was explicit about wanting a repeated setter.
                 if field_ident.clone().unwrap() != each {
                     req_setters.push(req_setter);
                 }
@@ -116,13 +115,13 @@ impl<'a> Generator<'a> {
 
             // Define these to be able to interpolate in quote.
             let b_ident = &self.b_ident;
-
             let b_ct_pn = &self.b_ct_pn;
-
             let st_lt_pn = &self.st_lt_pn;
             let st_ct_pn = &self.st_ct_pn;
             let st_ty_pn = &self.st_ty_pn;
 
+            // No need to create a new state, so just set the value.
+            // This setter is the non-repeated setter.
             let opt_setter = quote! {
                 pub fn #field_ident(mut self, #field_ident: #inner_ty) ->
                     #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
@@ -133,22 +132,22 @@ impl<'a> Generator<'a> {
             };
 
             if let Some(each) = repeated_attr {
-                let raw_ty = if let syn::Type::Path(type_path) = inner_ty {
-                    &type_path.path.segments[0].ident
-                } else {
-                    return Err(Error::UnsupportedType(field_ty.clone()));
-                };
-                let inner_inner_ty = wrapped_in(inner_ty, Some("Vec"));
+                let container_ident = type_ident(inner_ty)?;
+                let item_type = wrapped_in(inner_ty, Some("Vec"));
                 let each_ident = syn::Ident::new(each.as_str(), opt_field.span());
 
+                // Repeated setter
+                // No need to create a new state, so just set the value.
                 opt_setters.push(quote! {
-                    pub fn #each_ident(mut self, #each_ident: #inner_inner_ty) ->
+                    pub fn #each_ident(mut self, #each_ident: #item_type) ->
                         #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
                     {
                         match self.#field_ident.as_mut() {
+                            // If the vector is already created, just extend it using the newly provided value.
                             Some(c) => c.extend(Some(#each_ident)),
+                            // If not, create an empty `Vec`, extend it using the provided value, and set it.
                             None => {
-                                let mut c = #raw_ty::new();
+                                let mut c = #container_ident::new();
                                 c.extend(Some(#each_ident));
                                 self.#field_ident = Some(c);
                             }
@@ -158,6 +157,8 @@ impl<'a> Generator<'a> {
                     }
                 });
 
+                // Rust doesn't support function overloading so we can't have two setter functions with the same name.
+                // Prefer the repeated setter over the other setter since the user was explicit about wanting a repeated setter.
                 if field_ident.clone().unwrap() != each {
                     opt_setters.push(opt_setter);
                 }
@@ -182,13 +183,12 @@ impl<'a> Generator<'a> {
 
             // Define these to be able to interpolate in quote.
             let b_ident = &self.b_ident;
-
             let b_ct_pn = &self.b_ct_pn;
-
             let st_lt_pn = &self.st_lt_pn;
             let st_ct_pn = &self.st_ct_pn;
             let st_ty_pn = &self.st_ty_pn;
 
+            // No need to create a new state, so just set the value.
             def_setters.push(quote! {
                 pub fn #field_ident(mut self, #field_ident: #field_ty) ->
                     #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>

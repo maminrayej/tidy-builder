@@ -1,8 +1,17 @@
 use crate::err::Error;
 
+// Different attributes that a field can have.
 pub enum FieldAttr {
+    // Represents the repeated setter attribute: `#[builder(each = "name")]`
+    // `String` will be the name specified by the user.
     Repeat(String),
+
+    // Represents the default attribute:
+    // If the `Option<syn::Lit>` is `None`: `#[builder(default)]`
+    // If the `Option<syn::Lit>` is `Some`: `#[builder(default = lit)]`
     Default(Option<syn::Lit>),
+
+    // Represents the `#[builder(skip)]` attribute.
     Skip,
 }
 
@@ -11,6 +20,9 @@ fn parse_attr(
 ) -> Result<FieldAttr, Error> {
     match &nested[0] {
         syn::NestedMeta::Meta(meta) => match meta {
+            // Single word attributes:
+            // * `#[builder(default)]`
+            // * `#[builder(skip)]`
             syn::Meta::Path(path) => {
                 let name = &path.segments[0].ident;
 
@@ -20,6 +32,9 @@ fn parse_attr(
                     _ => Err(Error::UnknownAttr(meta.clone())),
                 }
             }
+            // Name value attributes:
+            // * `#[builder(each = "name")]`
+            // * `#[builder(default = lit)]`
             syn::Meta::NameValue(name_value) => {
                 let name = &name_value.path.segments[0].ident;
 

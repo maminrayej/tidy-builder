@@ -4,33 +4,26 @@ use quote::{format_ident, quote};
 use super::Generator;
 
 impl<'a> Generator<'a> {
-    pub fn constraints(&self) -> (Vec<proc_macro2::TokenStream>, Vec<syn::Ident>) {
-        let mut constraint_traits = vec![];
-        let mut constraint_traits_idents = vec![];
+    // Returns the traits guarding the `build` function.
+    pub fn guards(&self) -> (Vec<proc_macro2::TokenStream>, Vec<syn::Ident>) {
+        let mut guard_traits = vec![];
+        let mut guard_trait_idents = vec![];
+
+        // Generate a trait guard for each required field.
         for (field_idx, field) in self.req_fields.iter().enumerate() {
             let field_name = field.ident.as_ref().unwrap().to_string();
             let field_camel = field_name.to_case(Case::UpperCamel);
-            let trait_name = format_ident!("Has{}", field_camel);
+            let trait_ident = format_ident!("Has{}", field_camel);
 
-            // we need all the generic parameters except for the field's const bool one
+            let before_ct_pn = &self.b_ct_pn[0..field_idx];
+            let after_ct_pn = &self.b_ct_pn[field_idx + 1..];
 
-            // impl <...> #trait_name for Builder<...>
-            //        ^--left               right--^
-            let mut generic_const_pars_left = vec![];
-            let mut generic_const_pars_right = vec![];
+            let before_ct_p = &self.b_ct_p[0..field_idx];
+            let after_ct_p = &self.b_ct_p[field_idx + 1..];
 
-            for (const_par_idx, const_param_name) in self.b_ct_pn.iter().enumerate() {
-                if field_idx == const_par_idx {
-                    generic_const_pars_right.push(quote! { true });
-                } else {
-                    generic_const_pars_left.push(quote! { const #const_param_name : bool });
-                    generic_const_pars_right.push(quote! { #const_param_name });
-                }
-            }
-
-            let mut error_message = None;
-            // this feature uses `#[rustc_on_unimplemented]` which is only available
+            // This feature uses `#[rustc_on_unimplemented]` which is only available
             // in a nightly compiler.
+            let mut error_message = None;
             if cfg!(feature = "better_error") {
                 let message = format!("missing `{}`", &field_name);
                 let label = format!("provide `{}` before calling `.build()`", &field_name);
@@ -44,29 +37,26 @@ impl<'a> Generator<'a> {
 
             // Define these to be able to interpolate in quote.
             let b_ident = &self.b_ident;
-
             let where_clause = &self.where_clause;
-
             let st_lt_pn = &self.st_lt_pn;
             let st_ct_pn = &self.st_ct_pn;
             let st_ty_pn = &self.st_ty_pn;
-
             let st_lt_p = &self.st_lt_p;
             let st_ct_p = &self.st_ct_p;
             let st_ty_p = &self.st_ty_p;
 
-            constraint_traits.push(quote! {
-                            #error_message
-                            trait #trait_name {}
-                            impl<#(#st_lt_p,)* #(#st_ct_p,)* #(#generic_const_pars_left,)* #(#st_ty_p,)*>
-                                #trait_name for
-                                #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#generic_const_pars_right,)* #(#st_ty_pn,)* >
-                                #where_clause { }
-                        });
+            guard_traits.push(quote! {
+                #error_message
+                trait #trait_ident {}
+                impl<#(#st_lt_p,)* #(#st_ct_p,)* #(#before_ct_p,)* #(#after_ct_p,)* #(#st_ty_p,)* >
+                    #trait_ident for
+                    #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#before_ct_pn,)* true, #(#after_ct_pn,)* #(#st_ty_pn,)* >
+                    #where_clause { }
+            });
 
-            constraint_traits_idents.push(trait_name);
+            guard_trait_idents.push(trait_ident);
         }
 
-        (constraint_traits, constraint_traits_idents)
+        (guard_traits, guard_trait_idents)
     }
 }

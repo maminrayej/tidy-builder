@@ -6,7 +6,6 @@ pub enum Error {
     UnitStruct(syn::Fields),
     NotMetaList(syn::Attribute),
     NotStrValue(syn::Lit),
-    NotNameValue(syn::NestedMeta),
     UnexpectedLit(syn::Lit),
     NestedMetaList(syn::MetaList),
     UnknownAttr(syn::Meta),
@@ -38,25 +37,18 @@ impl From<Error> for proc_macro::TokenStream {
                     .into()
             }
             Error::NotMetaList(attr) => {
-                syn::Error::new_spanned(attr, "Provided attribute cannot be parsed as a meta list")
+                syn::Error::new_spanned(attr, "Provided attribute is malformed")
                     .into_compile_error()
                     .into()
             }
-            Error::NotStrValue(lit) => syn::Error::new_spanned(lit, "Literal must be a string")
+            Error::NotStrValue(lit) => syn::Error::new_spanned(lit, "Value must be a string")
                 .into_compile_error()
                 .into(),
-            Error::NotNameValue(nested_meta) => {
-                syn::Error::new_spanned(nested_meta, "Provided nested meta is not a key value")
-                    .into_compile_error()
-                    .into()
-            }
-            Error::UnexpectedLit(lit) => {
-                syn::Error::new_spanned(lit, "Not expected a literal inner meta")
-                    .into_compile_error()
-                    .into()
-            }
+            Error::UnexpectedLit(lit) => syn::Error::new_spanned(lit, "Not expected a literal")
+                .into_compile_error()
+                .into(),
             Error::NestedMetaList(meta_list) => {
-                syn::Error::new_spanned(meta_list, "Nested meta list is not supported")
+                syn::Error::new_spanned(meta_list, "Nested attributes are not supported")
                     .into_compile_error()
                     .into()
             }

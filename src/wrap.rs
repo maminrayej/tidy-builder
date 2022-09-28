@@ -1,3 +1,15 @@
+use crate::err::Error;
+
+// Some types wrap around another type(their inner type). For example `Vec` wraps around `T` so does `Option`.
+// This function returns the inner type of a wrapper type, if its name is equal to the provided `wrapper_name`.
+//
+// For example calling:
+//      wrapped_in(Vec<T>, Some("Vec"))
+// will return `T`. But, calling
+//      wrapped_in(Vec<T>, Some("Option"))
+// will return `None` since the name does not match.
+//
+// If we only care about the inner type, we can set `wrapper_name` to `None`.
 #[rustfmt::skip]
 pub fn wrapped_in<'a>(wrapper: &'a syn::Type, wrapper_name: Option<&str>) -> Option<&'a syn::Type> {
     if let syn::Type::Path(syn::TypePath { path ,.. }) = wrapper {
@@ -23,20 +35,15 @@ pub fn wrapped_in<'a>(wrapper: &'a syn::Type, wrapper_name: Option<&str>) -> Opt
     None
 }
 
-// Only `Type::Path` are supported here. These types have the form: segment0::segment1::segment2.
-// Currently this method only detects whether the type is an `Option` if it's written as `Option<_>`.
-//
-// TODO: We could also support:
-//      * ::std::option::Option
-//      * std::option::Option
-//
-// # Arguments
-// * `ty`: The type to check whether it's an `Option` or not.
-//
-// # Returns
-// * `Some`: Containing the type inside `Option`. For example calling this function
-//           on `Option<T>` returns `Some(T)`.
-// * `None`: If the type is not option.
+pub fn type_ident(wrapper: &syn::Type) -> Result<&syn::Ident, Error> {
+    if let syn::Type::Path(type_path) = wrapper {
+        Ok(&type_path.path.segments[0].ident)
+    } else {
+        Err(Error::UnsupportedType(wrapper.clone()))
+    }
+}
+
+// Returns inner type of an `Option` and `None` if type is not an `Option`.
 #[rustfmt::skip]
 pub fn is_option(ty: &syn::Type) -> Option<&syn::Type> {
     wrapped_in(ty, Some("Option"))

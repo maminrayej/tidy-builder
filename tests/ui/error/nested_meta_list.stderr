@@ -1,4 +1,4 @@
-error: Nested meta list is not supported
+error: Nested attributes are not supported
  --> tests/ui/error/nested_meta_list.rs:3:15
   |
 3 |     #[builder(builder(each = "each"))]
