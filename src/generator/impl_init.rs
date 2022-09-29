@@ -17,8 +17,8 @@ impl<'a> Generator<'a> {
             self.b_inits.push(quote! { #field_ident: None });
 
             // Create a const generic parameter for each required field in order to track whether it's been initialized or not.
-            self.b_ct_p.push(quote! { const #ct_param_ident: bool });
-            self.b_ct_pn.push(quote! { #ct_param_ident });
+            self.b_const_p.push(quote! { const #ct_param_ident: bool });
+            self.b_const_pn.push(quote! { #ct_param_ident });
 
             self.all_false.push(quote! { false });
 

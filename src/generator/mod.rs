@@ -34,20 +34,20 @@ pub struct Generator<'a> {
     ty_generics: syn::TypeGenerics<'a>,
     where_clause: Option<&'a syn::WhereClause>,
 
-    // st_lt_pn: struct's lifetime parameter names
-    // st_ct_pn: struct's const    parameter names
-    // st_ty_pn: struct's type     parameter names
+    // st_lifetime_pn: struct's lifetime parameter names
+    // st_const_pn: struct's const    parameter names
+    // st_type_pn: struct's type     parameter names
     //
     // struct Foo<'a: 'b, const N: usize, T: std::fmt::Display>
     //            --            -         -
     //            0             1         2
     //
-    // 0: st_lt_pn
-    // 1: st_ct_pn
-    // 2: st_ty_pn
-    st_lt_pn: Vec<GenericParamName>,
-    st_ct_pn: Vec<GenericParamName>,
-    st_ty_pn: Vec<GenericParamName>,
+    // 0: st_lifetime_pn
+    // 1: st_const_pn
+    // 2: st_type_pn
+    st_lifetime_pn: Vec<GenericParamName>,
+    st_const_pn: Vec<GenericParamName>,
+    st_type_pn: Vec<GenericParamName>,
 
     // st_lt_p: struct's lifetime parameters
     // st_ct_p: struct's const    parameters
@@ -60,9 +60,9 @@ pub struct Generator<'a> {
     // 0: st_lt_p
     // 1: st_ct_p
     // 2: st_ty_p
-    st_lt_p: Vec<syn::GenericParam>,
-    st_ct_p: Vec<syn::GenericParam>,
-    st_ty_p: Vec<syn::GenericParam>,
+    st_lifetime_p: Vec<syn::GenericParam>,
+    st_const_p: Vec<syn::GenericParam>,
+    st_type_p: Vec<syn::GenericParam>,
 
     // Different kinds of fields of the struct
     //
@@ -86,8 +86,8 @@ pub struct Generator<'a> {
     // b_ct_p:  builder const params
     //
     // Have similar semantics to `s_ct_pn` and `s_ct_p`.
-    b_ct_pn: Vec<proc_macro2::TokenStream>,
-    b_ct_p: Vec<proc_macro2::TokenStream>,
+    b_const_pn: Vec<proc_macro2::TokenStream>,
+    b_const_p: Vec<proc_macro2::TokenStream>,
 
     // b_fields: Contains fields of the builder
     // b_inits:  Contains initializtion code for fields of the builder
@@ -130,15 +130,17 @@ impl<'a> Generator<'a> {
                     //--- Struct generic Parameters ---//
                     let st_param_names = param_to_name(&ast.generics);
 
-                    // st_lt_pn: struct lifetime param names
-                    // st_ct_pn: struct const param names
-                    // st_ty_pn: struct type param names
-                    let (st_lt_pn, st_ct_pn, st_ty_pn) = split_param_names(st_param_names);
+                    // st_lifetime_pn: struct lifetime param names
+                    // st_const_pn: struct const param names
+                    // st_type_pn: struct type param names
+                    let (st_lifetime_pn, st_const_pn, st_type_pn) =
+                        split_param_names(st_param_names);
 
-                    // st_lt_p: struct lifetime params
-                    // st_ct_p: struct const params
-                    // st_ty_p: struct type params
-                    let (st_lt_p, st_ct_p, st_ty_p) = split_params(ast.generics.params.iter());
+                    // st_lifetime_p: struct lifetime params
+                    // st_const_p: struct const params
+                    // st_type_p: struct type params
+                    let (st_lifetime_p, st_const_p, st_type_p) =
+                        split_params(ast.generics.params.iter());
 
                     // Split the struct fields since handling required, optional, and default fields is different.
                     let mut req_fields = vec![];
@@ -166,12 +168,12 @@ impl<'a> Generator<'a> {
                         ty_generics,
                         where_clause,
 
-                        st_lt_pn,
-                        st_ct_pn,
-                        st_ty_pn,
-                        st_lt_p,
-                        st_ct_p,
-                        st_ty_p,
+                        st_lifetime_pn,
+                        st_const_pn,
+                        st_type_pn,
+                        st_lifetime_p,
+                        st_const_p,
+                        st_type_p,
 
                         req_fields,
                         opt_fields,
@@ -179,8 +181,8 @@ impl<'a> Generator<'a> {
 
                         all_false: vec![],
 
-                        b_ct_pn: vec![],
-                        b_ct_p: vec![],
+                        b_const_pn: vec![],
+                        b_const_p: vec![],
                         b_fields: vec![],
                         b_inits: vec![],
 
@@ -208,7 +210,7 @@ impl<'a> Generator<'a> {
     pub fn generate(self) -> Result<proc_macro2::TokenStream, Error> {
         let req_setters = self.req_setters()?;
         let opt_setters = self.opt_setters()?;
-        let def_setters = self.def_setters()?;
+        let def_setters = self.def_setters();
 
         let (guard_traits, guard_trait_idents) = self.guards();
 
@@ -219,17 +221,17 @@ impl<'a> Generator<'a> {
             impl_generics,
             ty_generics,
             where_clause,
-            st_lt_pn,
-            st_ct_pn,
-            st_ty_pn,
-            st_lt_p,
-            st_ct_p,
-            st_ty_p,
+            st_lifetime_pn,
+            st_const_pn,
+            st_type_pn,
+            st_lifetime_p,
+            st_const_p,
+            st_type_p,
             _req_fields,
             _opt_fields,
             _def_fields,
-            b_ct_pn,
-            b_ct_p,
+            b_const_pn,
+            b_const_p,
             b_fields,
             b_inits,
             _req_moves,
@@ -243,17 +245,17 @@ impl<'a> Generator<'a> {
             self.impl_generics,
             self.ty_generics,
             self.where_clause,
-            self.st_lt_pn,
-            self.st_ct_pn,
-            self.st_ty_pn,
-            self.st_lt_p,
-            self.st_ct_p,
-            self.st_ty_p,
+            self.st_lifetime_pn,
+            self.st_const_pn,
+            self.st_type_pn,
+            self.st_lifetime_p,
+            self.st_const_p,
+            self.st_type_p,
             self.req_fields,
             self.opt_fields,
             self.def_fields,
-            self.b_ct_pn,
-            self.b_ct_p,
+            self.b_const_pn,
+            self.b_const_p,
             self.b_fields,
             self.b_inits,
             self.req_moves,
@@ -263,20 +265,20 @@ impl<'a> Generator<'a> {
         );
 
         Ok(quote! {
-            pub struct #b_ident<#(#st_lt_p,)* #(#st_ct_p,)* #(#b_ct_p,)* #(#st_ty_p,)*> #where_clause {
+            pub struct #b_ident<#(#st_lifetime_p,)* #(#st_const_p,)* #(#b_const_p,)* #(#st_type_p,)*> #where_clause {
                 #(#b_fields),*
             }
 
             impl #impl_generics #s_ident #ty_generics #where_clause {
-                pub fn builder() -> #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#all_false,)* #(#st_ty_pn,)*> {
+                pub fn builder() -> #b_ident<#(#st_lifetime_pn,)* #(#st_const_pn,)* #(#all_false,)* #(#st_type_pn,)*> {
                     #b_ident {
                         #(#b_inits),*
                     }
                 }
             }
 
-            impl<#(#st_lt_p,)* #(#st_ct_p,)* #(#b_ct_p,)* #(#st_ty_p,)*>
-                #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)* >
+            impl<#(#st_lifetime_p,)* #(#st_const_p,)* #(#b_const_p,)* #(#st_type_p,)*>
+                #b_ident<#(#st_lifetime_pn,)* #(#st_const_pn,)* #(#b_const_pn,)* #(#st_type_pn,)* >
                 #where_clause
             {
                 #(#req_setters)*

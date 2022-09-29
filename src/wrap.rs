@@ -20,8 +20,7 @@ pub fn wrapped_in<'a>(wrapper: &'a syn::Type, wrapper_name: Option<&str>) -> Opt
         }
 
         return match &path.segments[0].arguments {
-            syn::PathArguments::None => None,
-            syn::PathArguments::Parenthesized(_) => None,
+            syn::PathArguments::None | syn::PathArguments::Parenthesized(_) => None,
             syn::PathArguments::AngleBracketed(syn::AngleBracketedGenericArguments { args, .. }) => {
                 if let syn::GenericArgument::Type(inner_ty) = &args[0] {
                     Some(inner_ty)

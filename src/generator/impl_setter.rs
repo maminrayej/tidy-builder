@@ -28,14 +28,14 @@ impl<'a> Generator<'a> {
             // When setting a parameter to `true`, we need to copy the other parameter
             // names. So we pick the parameter names before and after the parameter that
             // corresponds to this required field.
-            let before_pn = &self.b_ct_pn[..index];
-            let after_pn = &self.b_ct_pn[index + 1..];
+            let before_pn = &self.b_const_pn[..index];
+            let after_pn = &self.b_const_pn[index + 1..];
 
             // Define these to be able to interpolate in quote.
             let b_ident = &self.b_ident;
-            let st_lt_pn = &self.st_lt_pn;
-            let st_ct_pn = &self.st_ct_pn;
-            let st_ty_pn = &self.st_ty_pn;
+            let st_lifetime_pn = &self.st_lifetime_pn;
+            let st_const_pn = &self.st_const_pn;
+            let st_type_pn = &self.st_type_pn;
             let req_moves = &self.req_moves;
             let opt_moves = &self.opt_moves;
             let def_moves = &self.def_moves;
@@ -45,7 +45,7 @@ impl<'a> Generator<'a> {
             // This is the non-repeated setter.
             let req_setter = quote! {
                 pub fn #field_ident(self, #field_ident: #field_ty) ->
-                    #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#before_pn,)* true, #(#after_pn,)* #(#st_ty_pn,)*>
+                    #b_ident<#(#st_lifetime_pn,)* #(#st_const_pn,)* #(#before_pn,)* true, #(#after_pn,)* #(#st_type_pn,)*>
                 {
                     #b_ident {
                         #(#before_req_moves,)*
@@ -65,7 +65,7 @@ impl<'a> Generator<'a> {
                 req_setters.push(
                     quote! {
                         pub fn #each_ident(mut self, #each_ident: #item_type) ->
-                            #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#before_pn,)* true, #(#after_pn,)* #(#st_ty_pn,)*>
+                            #b_ident<#(#st_lifetime_pn,)* #(#st_const_pn,)* #(#before_pn,)* true, #(#after_pn,)* #(#st_type_pn,)*>
                         {
                             match self.#field_ident.as_mut() {
                                 // If the vector is already created, just extend it using the newly provided value.
@@ -115,16 +115,16 @@ impl<'a> Generator<'a> {
 
             // Define these to be able to interpolate in quote.
             let b_ident = &self.b_ident;
-            let b_ct_pn = &self.b_ct_pn;
-            let st_lt_pn = &self.st_lt_pn;
-            let st_ct_pn = &self.st_ct_pn;
-            let st_ty_pn = &self.st_ty_pn;
+            let b_const_pn = &self.b_const_pn;
+            let st_lifetime_pn = &self.st_lifetime_pn;
+            let st_const_pn = &self.st_const_pn;
+            let st_type_pn = &self.st_type_pn;
 
             // No need to create a new state, so just set the value.
             // This setter is the non-repeated setter.
             let opt_setter = quote! {
                 pub fn #field_ident(mut self, #field_ident: #inner_ty) ->
-                    #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
+                    #b_ident<#(#st_lifetime_pn,)* #(#st_const_pn,)* #(#b_const_pn,)* #(#st_type_pn,)*>
                 {
                     self.#field_ident = Some(#field_ident);
                     self
@@ -140,7 +140,7 @@ impl<'a> Generator<'a> {
                 // No need to create a new state, so just set the value.
                 opt_setters.push(quote! {
                     pub fn #each_ident(mut self, #each_ident: #item_type) ->
-                        #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
+                        #b_ident<#(#st_lifetime_pn,)* #(#st_const_pn,)* #(#b_const_pn,)* #(#st_type_pn,)*>
                     {
                         match self.#field_ident.as_mut() {
                             // If the vector is already created, just extend it using the newly provided value.
@@ -170,7 +170,7 @@ impl<'a> Generator<'a> {
         Ok(opt_setters)
     }
 
-    pub fn def_setters(&self) -> Result<Vec<proc_macro2::TokenStream>, Error> {
+    pub fn def_setters(&self) -> Vec<proc_macro2::TokenStream> {
         let mut def_setters = vec![];
 
         for def_field in &self.def_fields {
@@ -183,15 +183,15 @@ impl<'a> Generator<'a> {
 
             // Define these to be able to interpolate in quote.
             let b_ident = &self.b_ident;
-            let b_ct_pn = &self.b_ct_pn;
-            let st_lt_pn = &self.st_lt_pn;
-            let st_ct_pn = &self.st_ct_pn;
-            let st_ty_pn = &self.st_ty_pn;
+            let b_const_pn = &self.b_const_pn;
+            let st_lifetime_pn = &self.st_lifetime_pn;
+            let st_const_pn = &self.st_const_pn;
+            let st_type_pn = &self.st_type_pn;
 
             // No need to create a new state, so just set the value.
             def_setters.push(quote! {
                 pub fn #field_ident(mut self, #field_ident: #field_ty) ->
-                    #b_ident<#(#st_lt_pn,)* #(#st_ct_pn,)* #(#b_ct_pn,)* #(#st_ty_pn,)*>
+                    #b_ident<#(#st_lifetime_pn,)* #(#st_const_pn,)* #(#b_const_pn,)* #(#st_type_pn,)*>
                 {
                     self.#field_ident = #field_ident;
                     self
@@ -199,6 +199,6 @@ impl<'a> Generator<'a> {
             });
         }
 
-        Ok(def_setters)
+        def_setters
     }
 }

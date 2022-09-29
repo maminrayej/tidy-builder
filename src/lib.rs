@@ -22,25 +22,23 @@
 //!     employed: bool,
 //! }
 //!
-//! fn main() {
-//!     let person = Person::builder()
-//!                         .first_name("Foo".to_string())
-//!                         .last_name("Bar".to_string())
-//!                         .age(18)
-//!                         .build();
+//! let person = Person::builder()
+//!     .first_name("Foo".to_string())
+//!     .last_name("Bar".to_string())
+//!     .age(18)
+//!     .build();
 //!
-//!     assert_eq!(person.first_name, "Foo".to_string());
-//!     assert_eq!(person.last_name, "Bar".to_string());
-//!     assert_eq!(person.age, Some(18));
-//!     assert_eq!(person.employed, false);
-//! }
+//! assert_eq!(person.first_name, "Foo".to_string());
+//! assert_eq!(person.last_name, "Bar".to_string());
+//! assert_eq!(person.age, Some(18));
+//! assert_eq!(person.employed, false);
 //! ```
-//! As you can see, `first_name` and `last_name` are required fields, `age` is optional, and `employed` takes a default value of `false`. 
+//! As you can see, `first_name` and `last_name` are required fields, `age` is optional, and `employed` takes a default value of `false`.
 //! As we mentioned, in order to call `build`, you have to at least provide values for `first_name` and `last_name`.
 //!
 //! # Features
 //! ## Repeated setters
-//! For fields that are of form `Vec<T>`, you can instruct the builder to create a repeated setter for you. 
+//! For fields that are of form `Vec<T>`, you can instruct the builder to create a repeated setter for you.
 //! This repeated setter gets a single value of type `T` and appends to the `Vec`. For example:
 //! ```rust
 //! use tidy_builder::Builder;
@@ -51,21 +49,19 @@
 //!     args: Vec<&'a str>
 //! }
 //!
-//! fn main() {
-//!     let input1 = Input::builder().arg("arg1").arg("arg2").build();
-//!     let input2 = Input::builder().args(vec!["arg1", "arg2"]).build();
-//! 
-//!     assert_eq!(input1.args, vec!["arg1", "arg2"]);
-//!     assert_eq!(input2.args, vec!["arg1", "arg2"]);
-//! }
+//! let input1 = Input::builder().arg("arg1").arg("arg2").build();
+//! let input2 = Input::builder().args(vec!["arg1", "arg2"]).build();
+//!
+//! assert_eq!(input1.args, vec!["arg1", "arg2"]);
+//! assert_eq!(input2.args, vec!["arg1", "arg2"]);
 //! ```
-//! The builder will create another setter function named `arg` alongside the `args` function that was going to be generated anyway. 
-//! **Note** that if the name provided for the repeated setter is the same name as the field itself, 
-//! only the repeated setter will be provided by the builder since Rust does not support function overloading. 
+//! The builder will create another setter function named `arg` alongside the `args` function that was going to be generated anyway.
+//! **Note** that if the name provided for the repeated setter is the same name as the field itself,
+//! only the repeated setter will be provided by the builder since Rust does not support function overloading.
 //! For example if in the example above the repeated setter was named `args`, the setter that takes a `Vec` wouldn't be provided.
 //!
 //! ## Default values
-//! You can provide default values for fields and make them non-required. If the field is a primitive or a `String`, 
+//! You can provide default values for fields and make them non-required. If the field is a primitive or a `String`,
 //! you can specify the default value in the `#[builder(default)]` attribute, but if the field is not a primitive, it must implement the `Default` trait. For example:
 //! ```rust
 //! use tidy_builder::Builder;
@@ -93,13 +89,11 @@
 //!     #[builder(default = 0)]
 //!     offset: usize,
 //! }
-//! 
-//! fn main() {
-//!     let position = PlayerPosition::builder().build();
-//! 
-//!     assert_eq!(position.start, Point { x: 0, y: 0});
-//!     assert_eq!(position.offset, 0);
-//! }
+//!
+//! let position = PlayerPosition::builder().build();
+//!
+//! assert_eq!(position.start, Point { x: 0, y: 0});
+//! assert_eq!(position.offset, 0);
 //! ```
 //!
 //! ## Skipping Fields
@@ -118,7 +112,7 @@
 //!     #[builder(default = false)]
 //!     vote: bool
 //! }
-//! 
+//!
 //! fn main() {
 //!     let vote = Vote::builder().submit_url("fake_submit_url.com").name("Foo".to_string()); // Fails since there is no `name` setter
 //! }
@@ -139,16 +133,16 @@
 //!     let foo = Foo::builder().bar(0).build();
 //! }
 //! ```
-//! On stable Rust you'll get a **compile-time** error that the trait `HasBaz` is not implemented for the struct `FooBuilder<...>`. 
-//! The trait `HasBaz` indicates that `FooBuilder` **has** a value for the **`baz`** field. 
+//! On stable Rust you'll get a **compile-time** error that the trait `HasBaz` is not implemented for the struct `FooBuilder<...>`.
+//! The trait `HasBaz` indicates that `FooBuilder` **has** a value for the **`baz`** field.
 //! So this trait not being implemented for `FooBuilder` means that a value is not specified for the `baz` field and that's why you cannot call the `build` function.
 //!
-//! On nightly Rust and with the help of `rustc_on_unimplemented`, the `Builder` can hint at the compiler to 
-//! show the message `missing baz` to inform the user that in order to call `build`, they should set the value of the `baz` field. 
+//! On nightly Rust and with the help of `rustc_on_unimplemented`, the `Builder` can hint at the compiler to
+//! show the message `missing baz` to inform the user that in order to call `build`, they should set the value of the `baz` field.
 //! **Note** that this is behind the `better_error` feature gate.
 //!
 //! # How it works
-//! tidy-builder creates a state machine in order to model the behavior of the builder. The generated builder has a const generic parameter of type `bool` 
+//! tidy-builder creates a state machine in order to model the behavior of the builder. The generated builder has a const generic parameter of type `bool`
 //! for each required field to encode whether a value has been set for the field or not. For example:
 //! ```rust
 //! use tidy_builder::Builder;
@@ -169,29 +163,29 @@
 //! The builder will start in the `FooBuilder<false, false>` state when you call the `builder` function of `Foo`:
 //! ```rust
 //! # use tidy_builder::Builder;
-//! # 
+//! #
 //! # #[derive(Builder)]
 //! # struct Foo {
 //! #     bar: usize,
 //! #     baz: usize,
 //! # }
-//! 
+//!
 //! let builder: FooBuilder<false, false> = Foo::builder();
 //! let builder: FooBuilder<true, false> = Foo::builder().bar(0);
 //! let builder: FooBuilder<true, true> = Foo::builder().bar(0).baz(1);
-//! 
+//!
 //! let foo = builder.build();
-//! 
+//!
 //! assert_eq!(foo.bar, 0);
 //! assert_eq!(foo.baz, 1);
 //! ```
 //! When you call the `bar` function  to set the value of the `bar` field, you cause the builder to transition to the `FooBuilder<true, false>` state:
-//! Similarly, when you call the `baz` function, you cause the builder to transition to the `FooBuilder<false, true>` state. 
-//! So when you set the value for both fields, you end up at the `FooBuilder<true, true>` state, 
+//! Similarly, when you call the `baz` function, you cause the builder to transition to the `FooBuilder<false, true>` state.
+//! So when you set the value for both fields, you end up at the `FooBuilder<true, true>` state,
 //! and it's in this state that you can call the build function(the state that all const generic paramters are `true`):
-//! 
-//! The error reporting discussed in the previous section leverages these states to inform the user of the missing fields. 
-//! For example `HasBar` trait will be implemented for `FooBuilder<true, P1>` , and `HasBaz` will be implemented for `FooBuilder<P0, true>`. 
+//!
+//! The error reporting discussed in the previous section leverages these states to inform the user of the missing fields.
+//! For example `HasBar` trait will be implemented for `FooBuilder<true, P1>` , and `HasBaz` will be implemented for `FooBuilder<P0, true>`.
 //! The `build` function is guarded with a where clause to make sure the builder implements all these traits:
 //! ```rust
 //! # struct Foo {
@@ -228,7 +222,7 @@
 //!     }
 //! }
 //! ```
-//! So if you set the value of `bar` and not `baz`, since `HasBaz` won't be implemented for `FooBuilder<true, false>`, 
+//! So if you set the value of `bar` and not `baz`, since `HasBaz` won't be implemented for `FooBuilder<true, false>`,
 //! you'll get a compile-time error that calling `build` is not possible.
 //!
 

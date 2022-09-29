@@ -84,6 +84,7 @@ impl FieldAttrs {
         self.0.iter().any(|attr| matches!(&attr, FieldAttr::Skip))
     }
 
+    #[allow(clippy::option_option)]
     pub fn is_default(&self) -> Option<Option<syn::Lit>> {
         self.0.iter().find_map(|attr| {
             if let FieldAttr::Default(default) = attr {
