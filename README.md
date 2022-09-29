@@ -36,10 +36,14 @@ fn main() {
 }
 ```
 As you can see, `first_name` and `last_name` are required fields, `age` is optional, and `employed` takes a default value of `false`. 
-As we mentioned, in order to call `build`, you have to at least provide values for `first_name` and `last_name`.
+As we mentioned, in order to call `build`, you have to at least provide values for `first_name` and `last_name`. tidy-builder enforces this rule by creating a state machine and guarding the `build` function with special traits in order to make sure `build` is called only in the final state. Picture below shows the state machine created by tidy-builder:
 
-# Features
-## Repeated setters
+![](resources/state_machine.jpg)
+
+For more info see [What if I try to call the build function early?](#what_if) and [How it Works](#how_it_works).
+
+# <a name="features"></a>Features
+## <a name="repeated_setters"></a>Repeated Setters
 For fields that are of form `Vec<T>`, you can instruct the builder to create a repeated setter for you. 
 This repeated setter gets a single value of type `T` and appends to the `Vec`. For example:
 ```rust
@@ -64,7 +68,7 @@ The builder will create another setter function named `arg` alongside the `args`
 only the repeated setter will be provided by the builder since Rust does not support function overloading. 
 For example if in the example above the repeated setter was named `args`, the setter that takes a `Vec` wouldn't be provided.
 
-## Default values
+## <a name="default_values"></a>Default Values
 You can provide default values for fields and make them non-required. If the field is a primitive or a `String`, 
 you can specify the default value in the `#[builder(default)]` attribute, but if the field is not a primitive, it must implement the `Default` trait. For example:
 ```rust
@@ -102,7 +106,7 @@ fn main() {
 }
 ```
 
-## Skipping Fields
+## <a name="skipping_fields"></a>Skipping Fields
 You can prevent the builder from providing setters for **optional** and **default** fields. For example:
 ```rust compile_fail
 use tidy_builder::Builder;
@@ -123,8 +127,7 @@ fn main() {
     let vote = Vote::builder().submit_url("fake_submit_url.com").name("Foo".to_string()); // Fails since there is no `name` setter
 }
 ```
-
-# What if I try to call the `build` function early?
+# <a name="what_if"></a>What if I try to call the `build` function early?
 tidy-builder uses special traits to hint at the missing required fields. For example:
 ```rust compile_fail
 use tidy_builder::Builder;
@@ -147,7 +150,7 @@ On nightly Rust and with the help of `rustc_on_unimplemented`, the `Builder` can
 show the message `missing baz` to inform the user that in order to call `build`, they should set the value of the `baz` field. 
 **Note** that this is behind the `better_error` feature gate.
 
-# How it works
+# <a name="how_it_works"></a>How it works
 tidy-builder creates a state machine in order to model the behavior of the builder. The generated builder has a const generic parameter of type `bool` 
 for each required field to encode whether a value has been set for the field or not. For example:
 ```rust
