@@ -210,7 +210,7 @@ impl<'a> Generator<'a> {
     pub fn generate(self) -> Result<proc_macro2::TokenStream, Error> {
         let req_setters = self.req_setters()?;
         let opt_setters = self.opt_setters()?;
-        let def_setters = self.def_setters();
+        let def_setters = self.def_setters()?;
 
         let (guard_traits, guard_trait_idents) = self.guards();
 

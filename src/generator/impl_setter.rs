@@ -170,7 +170,7 @@ impl<'a> Generator<'a> {
         Ok(opt_setters)
     }
 
-    pub fn def_setters(&self) -> Vec<proc_macro2::TokenStream> {
+    pub fn def_setters(&self) -> Result<Vec<proc_macro2::TokenStream>, Error> {
         let mut def_setters = vec![];
 
         for def_field in &self.def_fields {
@@ -181,6 +181,8 @@ impl<'a> Generator<'a> {
                 continue;
             }
 
+            let repeated_attr = self.f_attrs[def_field].repeated();
+
             // Define these to be able to interpolate in quote.
             let b_ident = &self.b_ident;
             let b_const_pn = &self.b_const_pn;
@@ -189,16 +191,41 @@ impl<'a> Generator<'a> {
             let st_type_pn = &self.st_type_pn;
 
             // No need to create a new state, so just set the value.
-            def_setters.push(quote! {
+            let def_setter = quote! {
                 pub fn #field_ident(mut self, #field_ident: #field_ty) ->
                     #b_ident<#(#st_lifetime_pn,)* #(#st_const_pn,)* #(#b_const_pn,)* #(#st_type_pn,)*>
                 {
                     self.#field_ident = #field_ident;
                     self
                 }
-            });
+            };
+
+            if let Some(each) = repeated_attr {
+                let item_type = wrapped_in(field_ty, Some("Vec"));
+                let each_ident = syn::Ident::new(each.as_str(), field_ty.span());
+
+                // Repeated setter
+                // No need to create a new state, so just set the value.
+                def_setters.push(quote! {
+                    pub fn #each_ident(mut self, #each_ident: #item_type) ->
+                        #b_ident<#(#st_lifetime_pn,)* #(#st_const_pn,)* #(#b_const_pn,)* #(#st_type_pn,)*>
+                    {
+                        self.#field_ident.extend(Some(#each_ident));
+
+                        self
+                    }
+                });
+
+                // Rust doesn't support function overloading so we can't have two setter functions with the same name.
+                // Prefer the repeated setter over the other setter since the user was explicit about wanting a repeated setter.
+                if field_ident.clone().unwrap() != each {
+                    def_setters.push(def_setter);
+                }
+            } else {
+                def_setters.push(def_setter);
+            }
         }
 
-        def_setters
+        Ok(def_setters)
     }
 }
