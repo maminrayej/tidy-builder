@@ -38,7 +38,11 @@ fn main() {
 As you can see, `first_name` and `last_name` are required fields, `age` is optional, and `employed` takes a default value of `false`. 
 As we mentioned, in order to call `build`, you have to at least provide values for `first_name` and `last_name`. tidy-builder enforces this rule by creating a state machine and guarding the `build` function with special traits in order to make sure `build` is called only in the final state. Picture below shows the state machine created by tidy-builder:
 
+<center>
+
 ![](resources/state_machine.jpg)
+
+</center>
 
 For more info see [What if I try to call the build function early?](#what_if) and [How it Works](#how_it_works).
 
@@ -149,6 +153,13 @@ So this trait not being implemented for `FooBuilder` means that a value is not s
 On nightly Rust and with the help of `rustc_on_unimplemented`, the `Builder` can hint at the compiler to 
 show the message `missing baz` to inform the user that in order to call `build`, they should set the value of the `baz` field. 
 **Note** that this is behind the `better_error` feature gate.
+
+<center>
+
+![better_error](resources/better_error.png)
+
+</center>
+
 
 # <a name="how_it_works"></a>How it works
 tidy-builder creates a state machine in order to model the behavior of the builder. The generated builder has a const generic parameter of type `bool` 
