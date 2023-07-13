@@ -1,6 +1,0 @@
-error: Cannot skip a required field
-  --> tests/ui/skip_required_field.rs:10:5
-   |
-10 | /     #[builder(skip)]
-11 | |     req1: usize,
-   | |_______________^
