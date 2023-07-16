@@ -9,6 +9,7 @@ struct Test<T: Debug> {
     field0: String,
 
     #[builder(lazy)]
+    #[builder(once)]
     field1: T,
 
     #[builder(value = 0)]
@@ -16,6 +17,8 @@ struct Test<T: Debug> {
 
     #[builder(lazy)]
     field3: Option<usize>,
+
+    field4: u32,
 }
 
 fn main() {}

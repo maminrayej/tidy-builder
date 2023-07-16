@@ -37,8 +37,6 @@ pub struct Lazy {
     #[lazy = closure]
     #[lazy = Async + Override]
     #[lazy = Override + closure]
-
-    #[async]
 */
 pub enum FieldAttr {
     Skip,
@@ -49,7 +47,6 @@ pub enum FieldAttr {
     Each(String),
     Name(String),
     Lazy(Lazy),
-    Async,
     Check(syn::ExprClosure),
 }
 
@@ -195,8 +192,6 @@ fn parse_attr(attr: &syn::Attribute) -> Result<FieldAttr, syn::Error> {
                 override_value: false,
                 is_async: false,
             }))
-        } else if path.is_ident("async") {
-            Ok(FieldAttr::Async)
         } else {
             Err(syn::Error::new(path.span(), "Unknown attribute"))
         }
@@ -264,7 +259,6 @@ pub fn parse_attrs(field: &syn::Field) -> Result<Attributes, syn::Error> {
             FieldAttr::Hide => attributes.hide = true,
             FieldAttr::Once => attributes.once = true,
             FieldAttr::Into => attributes.into = true,
-            FieldAttr::Async => attributes.async_setter = true,
             FieldAttr::Value(value) => attributes.value = Some(value),
             FieldAttr::Each(each) => attributes.each = Some(each),
             FieldAttr::Name(name) => attributes.name = Some(name),
