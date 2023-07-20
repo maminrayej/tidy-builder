@@ -1,14 +1,16 @@
+use std::collections::HashMap;
+
 use tidy_builder::Builder;
 
-use std::fmt::Debug;
+fn is_kv_valid(kv: &(usize, usize)) -> bool {
+    true
+}
 
 #[derive(Builder)]
-pub struct Test<T: Debug> {
-    field0: String,
-    field1: T,
-    field2: usize,
-    field3: Option<usize>,
-    field4: u32,
+pub struct Test {
+    // #[builder(each = kv, |&(k, v)| k % 2 != 0 && v % 2 == 0)]
+    #[builder(each = kv, is_kv_valid)]
+    kvs: HashMap<usize, usize>,
 }
 
 fn main() {}

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use convert_case::{Case, Casing};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
+use ty::wrapped_in;
 
 macro_rules! return_on_error {
     ($e: expr) => {
@@ -96,9 +97,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let wrapped_in_option = ty::wrapped_in_option(ty);
 
         let ty = if let Some(wrapped) = wrapped_in_option {
-            ty::FieldType::Args(wrapped)
+            wrapped
         } else {
-            ty::FieldType::Type(ty)
+            ty
         };
 
         let required = wrapped_in_option.is_none() && !attrs.has_value();
@@ -243,9 +244,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let wrapped_in_option = ty::wrapped_in_option(ty);
         let ty = if let Some(wrapped) = wrapped_in_option {
-            ty::FieldType::Args(wrapped)
+            wrapped
         } else {
-            ty::FieldType::Type(ty)
+            ty
         };
 
         let required = wrapped_in_option.is_none() && !attrs.has_value();
@@ -335,6 +336,70 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             });
         } else {
             builder_setters.push(setter);
+        }
+
+        /* Generate each setters */
+        if let Some(each) = &attrs.each {
+            let each_ident = &each.ident;
+
+            let inner_ty = wrapped_in(ty, None).unwrap();
+            let inner_args = &inner_ty.args;
+
+            let container_ident = if let syn::Type::Path(type_path) = ty {
+                &type_path.path.segments.last().unwrap().ident
+            } else {
+                return syn::Error::new(ty.span(), "").into_compile_error().into();
+            };
+
+            let update_container = if attrs.has_value() {
+                quote! { self.#ident.extend(Some(#each_ident)); }
+            } else {
+                quote! {
+                    match self.#ident.as_mut() {
+                        Some(c) => c.extend(Some(#each_ident)),
+
+                        None => {
+                            let mut c = #container_ident::new();
+                            c.extend(Some(#each_ident));
+                            self.#ident = Some(c);
+                        }
+                    }
+                }
+            };
+
+            let check = if let Some(callable) = &each.callable {
+                Some(quote! {
+                    let check = #callable;
+
+                    if !(check)(&#each_ident) {
+                        return Err("Provided value is not valid".into());
+                    }
+                })
+            } else {
+                None
+            };
+
+            let return_ty = if check.is_some() {
+                quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> }
+            } else {
+                return_ty
+            };
+
+            let return_val = if check.is_some() {
+                quote! { Ok(#return_val) }
+            } else {
+                return_val
+            };
+
+            builder_setters.push(quote! {
+                pub fn #each_ident(mut self, #each_ident: (#inner_args)) -> #return_ty {
+                    #check
+
+                    #update_container
+
+                    #return_val
+                }
+            });
         }
 
         /* Generate guard traits */
