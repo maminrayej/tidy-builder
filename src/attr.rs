@@ -10,26 +10,26 @@
 #[derive(Debug, Clone)]
 pub struct Lazy {
     pub do_override: Option<syn::token::Override>,
-    pub asyncness: Option<syn::token::Async>,
+    pub is_async: bool,
     pub callable: Option<CallableItem>,
 }
 
 impl syn::parse::Parse for Lazy {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let mut do_override = None;
-        let mut asyncness = None;
+        let mut is_async = false;
         let mut callable = None;
 
-        if input.lookahead1().peek(syn::Token![override]) {
+        if input.peek(syn::Token![override]) {
             do_override = Some(input.parse::<syn::token::Override>().unwrap());
 
-            if input.lookahead1().peek(syn::Token![,]) {
+            if input.peek(syn::Token![,]) {
                 let _ = input.parse::<syn::token::Comma>().unwrap();
 
                 if input.lookahead1().peek(syn::Token![async]) {
-                    asyncness = Some(input.parse::<syn::token::Async>().unwrap());
+                    is_async = input.parse::<syn::token::Async>().is_ok();
 
-                    if input.lookahead1().peek(syn::Token![,]) {
+                    if input.peek(syn::Token![,]) {
                         let _ = input.parse::<syn::token::Comma>().unwrap();
 
                         callable = Some(input.parse::<CallableItem>()?);
@@ -46,7 +46,7 @@ impl syn::parse::Parse for Lazy {
 
         Ok(Lazy {
             do_override,
-            asyncness,
+            is_async,
             callable,
         })
     }
@@ -135,35 +135,37 @@ pub enum Callable {
     Closure(syn::ExprClosure),
 }
 
-/* <async>? <path> | <closure> */
+/*
+    <async>? <path>
+    <async>? <closure>
+*/
 #[derive(Debug, Clone)]
 pub struct CallableItem {
-    pub asyncness: Option<syn::token::Async>,
+    pub is_async: bool,
     pub callable: Callable,
 }
 
 impl syn::parse::Parse for CallableItem {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let lookahead = input.lookahead1();
+        let mut is_async = false;
+        if input.peek(syn::Token![async]) {
+            let _ = input.parse::<syn::token::Async>().unwrap();
 
+            is_async = true;
+        }
+
+        let lookahead = input.lookahead1();
         let callable = if lookahead.peek(syn::Token![|]) {
             let closure = input.parse::<syn::ExprClosure>()?;
 
             CallableItem {
-                asyncness: closure.asyncness,
+                is_async,
                 callable: Callable::Closure(closure),
             }
         } else {
-            let asyncness = lookahead
-                .peek(syn::Token![async])
-                .then(|| input.parse::<syn::token::Async>().unwrap());
-
             let callable = input.parse().map(Callable::Function)?;
 
-            CallableItem {
-                asyncness,
-                callable,
-            }
+            CallableItem { is_async, callable }
         };
 
         Ok(callable)

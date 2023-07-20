@@ -96,6 +96,12 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let wrapped_in_option = ty::wrapped_in_option(ty);
 
+        if wrapped_in_option.is_some() && attrs.value.is_some() {
+            return syn::Error::new(ty.span(), "Option cannot have a default value.")
+                .into_compile_error()
+                .into();
+        }
+
         let ty = if let Some(wrapped) = wrapped_in_option {
             wrapped
         } else {
@@ -108,7 +114,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let check_field = format_ident!("check_{}", ident.as_ref().unwrap());
 
         /* Generate builder fields */
-        builder_fields.push(if attrs.value.is_none() {
+        builder_fields.push(if required {
+            quote! { #ident: ::std::mem::MaybeUninit<#ty> }
+        } else if wrapped_in_option.is_some() {
             quote! { #ident: ::std::option::Option<#ty> }
         } else {
             quote! { #ident: #ty }
@@ -123,7 +131,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
 
         if let Some(lazy) = &attrs.lazy {
-            let lazy_ty = if lazy.asyncness.is_some() {
+            let lazy_ty = if lazy.is_async {
                 is_build_async = true;
 
                 quote! { ::std::boxed::box<dyn ::std::future::Future<Output = #ty>> }
@@ -145,10 +153,10 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         /* Generate initialization of each field of the builder */
         builder_inits.push(if let Some(value) = &attrs.value {
             match value {
-                attr::Value::Default(_) => quote! { #ident: ::std::default::Default() },
+                attr::Value::Default(_) => quote! { #ident: ::std::default::Default::default() },
                 attr::Value::Lit(lit) => quote! { #ident: #lit },
                 attr::Value::Callable(callable) => {
-                    if callable.asyncness.is_none() {
+                    if !callable.is_async {
                         quote! { #ident: (#callable)() }
                     } else {
                         is_builder_async = true;
@@ -157,6 +165,8 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }
                 }
             }
+        } else if required {
+            quote! { #ident: ::std::mem::MaybeUninit::uninit() }
         } else {
             quote! { #ident: None }
         });
@@ -183,14 +193,14 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         /* Generate builder final values */
         let final_value = if required {
-            quote! { unsafe { self.#ident.unwrap_unchecked() } }
+            quote! { unsafe { self.#ident.assume_init() } }
         } else {
             quote! { self.#ident }
         };
 
         let mut do_override = quote! {};
         if let Some(lazy) = &attrs.lazy {
-            let is_await = if lazy.asyncness.is_some() {
+            let is_await = if lazy.is_async {
                 quote! { .await }
             } else {
                 quote! {}
@@ -288,13 +298,8 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             return_val = quote! { Ok(#return_val) };
         }
 
-        let before_names = &builder_const_names[..req_index];
-        let after_names = &builder_const_names[req_index + 1..];
-        let before_params = &builder_const_params[..req_index];
-        let after_params = &builder_const_params[req_index + 1..];
-        if required {
-            req_index += 1;
-        }
+        let before_names = builder_const_names.iter().take(req_index);
+        let after_names = builder_const_names.iter().skip(req_index + 1);
 
         let mut return_ty = if required {
             quote! {
@@ -309,7 +314,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
         };
 
-        let assignment = if !attrs.has_value() {
+        let assignment = if required {
+            quote! { self.#ident.write(#ident); }
+        } else if wrapped_in_option.is_some() {
             quote! { self.#ident = Some(#ident); }
         } else {
             quote! { self.#ident = #ident; }
@@ -326,6 +333,11 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         };
 
         if required && attrs.props.once {
+            let before_names = builder_const_names.iter().take(req_index);
+            let after_names = builder_const_names.iter().skip(req_index + 1);
+            let before_params = builder_const_params.iter().take(req_index);
+            let after_params = builder_const_params.iter().skip(req_index + 1);
+
             builder_impls.push(quote! {
                 impl<#(#lifetime_params,)* #(#const_params,)* #(#before_params,)*  #(#after_params,)* #(#type_params,)*>
                 #builder<#(#lifetime_names,)* #(#const_names,)* #(#before_names,)* false, #(#after_names,)* #(#type_names,)*>
@@ -335,7 +347,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             });
         } else {
-            builder_setters.push(setter);
+            if required || !attrs.props.skip {
+                builder_setters.push(setter);
+            }
         }
 
         /* Generate each setters */
@@ -371,7 +385,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 Some(quote! {
                     let check = #callable;
 
-                    if !(check)(&#each_ident) {
+                    if !check(&#each_ident) {
                         return Err("Provided value is not valid".into());
                     }
                 })
@@ -422,6 +436,10 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     )]
                 });
             }
+            let before_names = builder_const_names.iter().take(req_index);
+            let after_names = builder_const_names.iter().skip(req_index + 1);
+            let before_params = builder_const_params.iter().take(req_index);
+            let after_params = builder_const_params.iter().skip(req_index + 1);
 
             builder_guard_traits.push(quote! {
                 #error_message
@@ -434,14 +452,18 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             builder_guard_trait_idents.push(trait_ident);
         }
+
+        if required {
+            req_index += 1;
+        }
     }
 
     quote! {
         pub struct #builder<
-            #(#lifetime_names,)*
-            #(#const_names,)*
+            #(#lifetime_params,)*
+            #(#const_params,)*
             #(#builder_const_params,)*
-            #(#type_names,)*
+            #(#type_params,)*
         > {
             #(#builder_fields,)*
         }
