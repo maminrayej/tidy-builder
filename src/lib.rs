@@ -1,9 +1,9 @@
 mod attr;
+mod ty;
 
 use std::collections::HashMap;
 
 use convert_case::{Case, Casing};
-// use convert_case::{Case, Casing};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 
@@ -16,21 +16,6 @@ macro_rules! return_on_error {
             }
         }
     };
-}
-
-#[derive(Debug, Clone)]
-enum FieldType<'a> {
-    Type(&'a syn::Type),
-    Args(&'a syn::AngleBracketedGenericArguments),
-}
-
-impl<'a> quote::ToTokens for FieldType<'a> {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        match self {
-            FieldType::Type(ty) => ty.to_tokens(tokens),
-            FieldType::Args(args) => args.args.to_tokens(tokens),
-        }
-    }
 }
 
 #[proc_macro_derive(Builder, attributes(builder))]
@@ -75,20 +60,31 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let type_params: Vec<_> = ast.generics.type_params().collect();
     let type_names: Vec<_> = type_params.iter().map(|p| p.ident.clone()).collect();
 
-    let mut builder_fields = vec![];
-    let mut builder_inits = vec![];
-    let mut builder_moves = vec![];
-    let mut builder_field_names = vec![];
-    let mut builder_all_false = vec![];
-    let mut builder_const_params = vec![];
-    let mut builder_const_names = vec![];
-    let mut builder_impls = vec![];
-    let mut builder_setters = vec![];
-    let mut builder_final_values = vec![];
-    let mut builder_guard_traits = vec![];
-    let mut builder_guard_trait_idents = vec![];
+    let mut builder_fields = Vec::with_capacity(named.len());
+    let mut builder_inits = Vec::with_capacity(named.len());
+    let mut builder_moves = Vec::with_capacity(named.len());
+    let mut builder_field_names = Vec::with_capacity(named.len());
+    let mut builder_all_false = Vec::with_capacity(named.len());
+    let mut builder_const_params = Vec::with_capacity(named.len());
+    let mut builder_const_names = Vec::with_capacity(named.len());
+    let mut builder_impls = Vec::with_capacity(named.len());
+    let mut builder_setters = Vec::with_capacity(named.len());
+    let mut builder_final_values = Vec::with_capacity(named.len());
+    let mut builder_guard_traits = Vec::with_capacity(named.len());
+    let mut builder_guard_trait_idents = Vec::with_capacity(named.len());
 
+    /*
+        Indicates whether the builder() function should be async or not.
+        If a default value is provided for a field that gets resolved in an async context,
+        this flag will be set to true.
+    */
     let mut is_builder_async = false;
+
+    /*
+        Indicates whether the build() function should be async or not.
+        If a lazy value is provided for a field that gets resolved in an async context,
+        this flag will be set to true.
+    */
     let mut is_build_async = false;
 
     let mut req_index: usize = 0;
@@ -97,12 +93,12 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let ty = &field.ty;
         let attrs = &field_to_attrs[field];
 
-        let wrapped_in_option = wrapped_in_option(ty);
+        let wrapped_in_option = ty::wrapped_in_option(ty);
 
         let ty = if let Some(wrapped) = wrapped_in_option {
-            FieldType::Args(wrapped)
+            ty::FieldType::Args(wrapped)
         } else {
-            FieldType::Type(ty)
+            ty::FieldType::Type(ty)
         };
 
         let required = wrapped_in_option.is_none() && !attrs.has_value();
@@ -119,7 +115,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         if attrs.check.is_some() {
             builder_fields.push(
-                quote! { #check_field: ::std::boxed::Box<dyn Fn(&#ty) -> ::std::result::Result<(), ::std::boxed::Box<dyn ::std::error::Error>>> }
+                quote! {
+                    #check_field: ::std::boxed::Box<dyn Fn(&#ty) -> ::std::result::Result<(), ::std::boxed::Box<dyn ::std::error::Error>>>
+                }
             );
         }
 
@@ -162,6 +160,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             quote! { #ident: None }
         });
 
+        /* Generate builder moves and inits */
         if let Some(lazy) = &attrs.lazy {
             builder_moves.push(quote! { #lazy_field: self.#lazy_field });
 
@@ -178,62 +177,47 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         builder_moves.push(quote! { #ident: self.#ident });
 
+        /* Generate builder field name */
         builder_field_names.push(quote! { #ident });
 
-        builder_final_values.push(if required {
-            if let Some(lazy) = &attrs.lazy {
-                let is_await = lazy.asyncness.map(|_| quote! { .await });
-
-                if lazy.do_override.is_some() {
-                    quote! { let #ident = self.#lazy_field()#is_await; }
-                } else {
-                    quote! {
-                        let #ident = if self.#ident.is_none() {
-                            self.#lazy_field()#is_await
-                        } else {
-                            unsafe { self.#ident.unwrap_unchecked() }
-                        };
-                    }
-                }
-            } else {
-                quote! { let #ident = unsafe { self.#ident.unwrap_unchecked() }; }
-            }
-        } else if let Some(_) = wrapped_in_option {
-            if let Some(lazy) = &attrs.lazy {
-                let is_await = lazy.asyncness.map(|_| quote! { .await });
-
-                if lazy.do_override.is_some() {
-                    quote! { let #ident = Some(self.#lazy_field()#is_await); }
-                } else {
-                    quote! {
-                        let #ident = if self.#ident.is_none() {
-                            Some(self.#lazy_field()#is_await)
-                        } else {
-                            self.#ident
-                        };
-                    }
-                }
-            } else {
-                quote! { let #ident = self.#ident; }
-            }
+        /* Generate builder final values */
+        let final_value = if required {
+            quote! { unsafe { self.#ident.unwrap_unchecked() } }
         } else {
-            if let Some(lazy) = &attrs.lazy {
-                let is_await = lazy.asyncness.map(|_| quote! { .await });
+            quote! { self.#ident }
+        };
 
-                if lazy.do_override.is_some() {
-                    quote! { let #ident = self.#lazy_field()#is_await; }
-                } else {
-                    quote! {
-                        let #ident = if self.#ident.is_none() {
-                            self.#lazy_field()#is_await
-                        } else {
-                            self.#ident
-                        };
-                    }
-                }
+        let mut do_override = quote! {};
+        if let Some(lazy) = &attrs.lazy {
+            let is_await = if lazy.asyncness.is_some() {
+                quote! { .await }
             } else {
-                quote! { let #ident = self.#ident; }
-            }
+                quote! {}
+            };
+
+            let override_expr = if wrapped_in_option.is_some() {
+                quote! { Some(self.#lazy_field()#is_await) }
+            } else {
+                quote! { self.#lazy_field()#is_await }
+            };
+
+            do_override = if lazy.do_override.is_some() {
+                quote! { let #ident = #override_expr; }
+            } else {
+                quote! {
+                    let #ident = if self.#ident.is_none() {
+                        #override_expr
+                    } else {
+                        #final_value;
+                    };
+                }
+            };
+        }
+
+        builder_final_values.push(quote! {
+           let #ident = #final_value;
+
+            #do_override
         });
 
         /* Generate builder generic params */
@@ -257,11 +241,11 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let ty = &field.ty;
         let attrs = &field_to_attrs[field];
 
-        let wrapped_in_option = wrapped_in_option(ty);
+        let wrapped_in_option = ty::wrapped_in_option(ty);
         let ty = if let Some(wrapped) = wrapped_in_option {
-            FieldType::Args(wrapped)
+            ty::FieldType::Args(wrapped)
         } else {
-            FieldType::Type(ty)
+            ty::FieldType::Type(ty)
         };
 
         let required = wrapped_in_option.is_none() && !attrs.has_value();
@@ -285,66 +269,76 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let check = attrs.check.as_ref().map(|_| {
             quote! {
                 if !self.#check_field(&#ident) {
-                    return Err("Provided value is not valie".into());
+                    return Err("Provided value is not valid".into());
                 }
             }
         });
 
-        if required {
-            if attrs.props.skip {
-                return syn::Error::new(
-                    field.span(),
-                    "You cannot skip a field that has no default and/or lazy value",
-                )
-                .into_compile_error()
-                .into();
-            }
-
-            let before_names = &builder_const_names[..req_index];
-            let after_names = &builder_const_names[req_index + 1..];
-
-            let before_params = &builder_const_params[..req_index];
-            let after_params = &builder_const_params[req_index + 1..];
-
-            req_index += 1;
-
-            let mut return_ty = quote! {
-                #builder<#(#lifetime_names,)* #(#const_names,)* #(#before_names,)* true, #(#after_names,)* #(#type_names,)*>
-            };
-            let mut return_val = quote! {
+        let mut return_val = if required {
+            quote! {
                 #builder {
                     #(#builder_moves,)*
                 }
-            };
-
-            if check.is_some() {
-                return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
-                return_val = quote! { Ok(#return_val) };
             }
+        } else {
+            quote! { self }
+        };
+        if check.is_some() {
+            return_val = quote! { Ok(#return_val) };
+        }
 
-            let setter = quote! {
-                #visibility fn #setter_name(mut self, #ident: #input_ty) -> #return_ty {
-                    #check
+        let before_names = &builder_const_names[..req_index];
+        let after_names = &builder_const_names[req_index + 1..];
+        let before_params = &builder_const_params[..req_index];
+        let after_params = &builder_const_params[req_index + 1..];
+        if required {
+            req_index += 1;
+        }
 
-                    self.#ident = Some(#ident);
+        let mut return_ty = if required {
+            quote! {
+                #builder<#(#lifetime_names,)* #(#const_names,)* #(#before_names,)* true, #(#after_names,)* #(#type_names,)*>
+            }
+        } else {
+            quote! {
+                #builder<#(#lifetime_names,)* #(#const_names,)* #(#builder_const_names,)* #(#type_names,)*>
+            }
+        };
+        if check.is_some() {
+            return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
+        };
 
-                    #return_val
+        let assignment = if !attrs.has_value() {
+            quote! { self.#ident = Some(#ident); }
+        } else {
+            quote! { self.#ident = #ident; }
+        };
+
+        let setter = quote! {
+            #visibility fn #setter_name(mut self, #ident: #input_ty) -> #return_ty {
+                #check
+
+                #assignment
+
+                #return_val
+            }
+        };
+
+        if required && attrs.props.once {
+            builder_impls.push(quote! {
+                impl<#(#lifetime_params,)* #(#const_params,)* #(#before_params,)*  #(#after_params,)* #(#type_params,)*>
+                #builder<#(#lifetime_names,)* #(#const_names,)* #(#before_names,)* false, #(#after_names,)* #(#type_names,)*>
+                    #where_clause
+                {
+                    #setter
                 }
-            };
+            });
+        } else {
+            builder_setters.push(setter);
+        }
 
-            if attrs.props.once {
-                builder_impls.push(quote! {
-                    impl<#(#lifetime_params,)* #(#const_params,)* #(#before_params,)*  #(#after_params,)* #(#type_params,)*>
-                    #builder<#(#lifetime_names,)* #(#const_names,)* #(#before_names,)* false, #(#after_names,)* #(#type_names,)*>
-                        #where_clause
-                    {
-                        #setter
-                    }
-                });
-            } else {
-                builder_setters.push(setter);
-            }
-
+        /* Generate guard traits */
+        if required {
             let ident_string = ident.as_ref().unwrap().to_string();
             let ident_camel = ident_string.to_case(Case::UpperCamel);
             let trait_ident = format_ident!("Has{}", ident_camel);
@@ -355,6 +349,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             if cfg!(feature = "better_error") {
                 let message = format!("missing `{}`", &ident_string);
                 let label = format!("provide `{}` before calling `.build()`", &ident_string);
+
                 error_message = Some(quote! {
                     #[rustc_on_unimplemented(
                         message=#message,
@@ -373,60 +368,6 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             });
 
             builder_guard_trait_idents.push(trait_ident);
-        } else if let Some(_) = wrapped_in_option {
-            if attrs.props.skip {
-                continue;
-            }
-
-            let mut return_ty = quote! {
-                #builder<#(#lifetime_names,)* #(#const_names,)* #(#builder_const_names,)* #(#type_names,)*>
-            };
-
-            let mut return_val = quote! {
-                self
-            };
-
-            if check.is_some() {
-                return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
-                return_val = quote! { Ok(self) };
-            }
-
-            builder_setters.push(quote! {
-                #visibility fn #setter_name(mut self, #ident: #input_ty) -> #return_ty {
-                    #check
-
-                    self.#ident = Some(#ident);
-
-                    #return_val
-                }
-            });
-        } else {
-            if attrs.props.skip {
-                continue;
-            }
-
-            let mut return_ty = quote! {
-                #builder<#(#lifetime_names,)* #(#const_names,)* #(#builder_const_names,)* #(#type_names,)*>
-            };
-
-            let mut return_val = quote! {
-                self
-            };
-
-            if check.is_some() {
-                return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
-                return_val = quote! { Ok(self) }
-            }
-
-            builder_setters.push(quote! {
-                #visibility fn #setter_name(mut self, #ident: #input_ty) -> #return_ty {
-                    #check
-
-                    self.#ident = #ident;
-
-                    #return_val
-                }
-            });
         }
     }
 
@@ -461,7 +402,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         {
             #(#builder_setters)*
 
-            pub fn #is_build_async build(self) -> #ident #ty_generics
+            pub #is_build_async fn build(self) -> #ident #ty_generics
                 where Self: #(#builder_guard_trait_idents)+*
             {
                 #(#builder_final_values)*
@@ -475,26 +416,4 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         #(#builder_guard_traits)*
     }
     .into()
-}
-
-fn wrapped_in<'a>(
-    ty: &'a syn::Type,
-    wrapper: Option<&str>,
-) -> Option<&'a syn::AngleBracketedGenericArguments> {
-    let syn::Type::Path(syn::TypePath { path, .. }) = ty else { return None; };
-
-    let args = (&path.segments)
-        .last()
-        .filter(|seg| wrapper.iter().any(|wrapper| seg.ident == wrapper))
-        .map(|seg| &seg.arguments);
-
-    if let Some(syn::PathArguments::AngleBracketed(args)) = args {
-        Some(args)
-    } else {
-        None
-    }
-}
-
-fn wrapped_in_option(ty: &syn::Type) -> Option<&syn::AngleBracketedGenericArguments> {
-    wrapped_in(ty, Some("Option"))
 }
