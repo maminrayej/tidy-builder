@@ -373,8 +373,10 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             };
 
             let each_check = if let Some(callable) = &each.callable {
+                let check_ty = quote! { &dyn Fn(&(#inner_args)) -> bool };
+
                 Some(quote! {
-                    let check = #callable;
+                    let check: #check_ty = &#callable;
 
                     if !check(&#each_ident) {
                         return Err("Provided value is not valid".into());
