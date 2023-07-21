@@ -111,22 +111,13 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let required = wrapped_in_option.is_none() && !attrs.has_value();
 
         let lazy_field = format_ident!("lazy_{}", ident.as_ref().unwrap());
-        let check_field = format_ident!("check_{}", ident.as_ref().unwrap());
 
         /* Generate builder fields */
-        builder_fields.push(if required {
-            quote! { #ident: ::std::mem::MaybeUninit<#ty> }
-        } else if wrapped_in_option.is_some() {
+        builder_fields.push(if attrs.value.is_none() {
             quote! { #ident: ::std::option::Option<#ty> }
         } else {
             quote! { #ident: #ty }
         });
-
-        if attrs.check.is_some() {
-            builder_fields.push(quote! {
-                #check_field: ::std::boxed::Box<dyn Fn(&#ty) -> bool>
-            });
-        }
 
         if let Some(lazy) = &attrs.lazy {
             let lazy_ty = if lazy.is_async {
@@ -163,8 +154,6 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }
                 }
             }
-        } else if required {
-            quote! { #ident: ::std::mem::MaybeUninit::uninit() }
         } else {
             quote! { #ident: None }
         });
@@ -179,10 +168,6 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 builder_inits.push(quote! { #lazy_field: None });
             }
         }
-        if let Some(check) = &attrs.check {
-            builder_inits.push(quote! { #check_field: Box::new(#check) });
-            builder_moves.push(quote! { #check_field: self.#check_field});
-        }
 
         builder_moves.push(quote! { #ident: self.#ident });
 
@@ -191,7 +176,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         /* Generate builder final values */
         let final_value = if required {
-            quote! { unsafe { self.#ident.assume_init() } }
+            quote! { unsafe { self.#ident.unwrap_unchecked() } }
         } else {
             quote! { self.#ident }
         };
@@ -259,8 +244,6 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let required = wrapped_in_option.is_none() && !attrs.has_value();
 
-        let check_field = format_ident!("check_{}", ident.as_ref().unwrap());
-
         let setter_name = if let Some(name) = &attrs.name {
             name
         } else {
@@ -275,9 +258,13 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let visibility = (!attrs.props.hide).then_some(Some(quote! { pub }));
 
-        let check = attrs.check.as_ref().map(|_| {
+        let check = attrs.check.as_ref().map(|check| {
+            let check_ty = quote! { &dyn Fn(&#ty) -> bool };
+
             quote! {
-                if !(self.#check_field)(&#ident) {
+                let check: #check_ty = &#check;
+
+                if !(check)(&#ident) {
                     return Err("Provided value is not valid".into());
                 }
             }
@@ -318,9 +305,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             quote! { let #ident = #ident; }
         };
 
-        let assignment = if required {
-            quote! { self.#ident.write(#ident); }
-        } else if wrapped_in_option.is_some() {
+        let assignment = if attrs.value.is_none() {
             quote! { self.#ident = Some(#ident); }
         } else {
             quote! { self.#ident = #ident; }
@@ -387,7 +372,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             };
 
-            let check = if let Some(callable) = &each.callable {
+            let each_check = if let Some(callable) = &each.callable {
                 Some(quote! {
                     let check = #callable;
 
@@ -399,13 +384,13 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 None
             };
 
-            let return_ty = if check.is_some() {
+            let return_ty = if each_check.is_some() && check.is_none() {
                 quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> }
             } else {
                 return_ty
             };
 
-            let return_val = if check.is_some() {
+            let return_val = if each_check.is_some() && check.is_none() {
                 quote! { Ok(#return_val) }
             } else {
                 return_val
@@ -413,7 +398,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             builder_setters.push(quote! {
                 pub fn #each_ident(mut self, #each_ident: (#inner_args)) -> #return_ty {
-                    #check
+                    #each_check
 
                     #update_container
 

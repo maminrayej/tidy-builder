@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 fn is_even(num: &usize) -> bool {
     num % 2 == 0
 }
@@ -34,7 +36,10 @@ pub struct Test {
     #[builder(props = into, once)]
     #[builder(check = |args| args.iter().all(is_even))]
     #[builder(each = arg, is_even)]
-    args: Option<Vec<usize>>,
+    args: Vec<usize>,
+
+    #[builder(each = kv)]
+    kvs: HashMap<usize, usize>,
 }
 
 #[test]
@@ -52,6 +57,10 @@ fn all_required() {
         .unwrap()
         .new_field7(10usize)
         .unwrap()
+        .arg(8)
+        .unwrap()
+        .kv((2, 2))
+        .kv((4, 4))
         .build();
 
     assert_eq!(test.field0, 0);

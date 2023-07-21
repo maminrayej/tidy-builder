@@ -34,7 +34,7 @@ pub struct Test {
 
     #[builder(props = into, once)]
     #[builder(check = |args| args.iter().all(is_even))]
-    #[builder(each = arg, is_even)]
+    #[builder(each = arg, |num| is_even(num))]
     args: Option<Vec<usize>>,
 }
 
