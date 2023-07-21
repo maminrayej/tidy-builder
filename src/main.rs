@@ -1,26 +1,41 @@
-// #[derive(tidy_builder::Builder)]
-// pub struct Test<const F0: usize, const F1: usize, const F2: usize, const F3: usize> {
-//     field0: usize,
-//     field1: usize,
-//     field2: usize,
-//     field3: usize,
-// }
-
-fn main() {
-    // let field0 = 0;
-    // let field1 = 1;
-    // let field2 = 2;
-    // let field3 = 3;
-
-    // let test = Test::builder()
-    //     .field0(&field0)
-    //     .field1(&field1)
-    //     .field2(&field2)
-    //     .field3(&field3)
-    //     .build();
-
-    // assert_eq!(*test.field0, 0);
-    // assert_eq!(*test.field1, 1);
-    // assert_eq!(*test.field2, 2);
-    // assert_eq!(*test.field3, 3);
+fn is_even(num: &usize) -> bool {
+    num % 2 == 0
 }
+
+#[derive(tidy_builder::Builder)]
+pub struct Test {
+    #[builder(props = skip)]
+    field0: Option<usize>,
+
+    #[builder(props = into)]
+    field1: Option<usize>,
+
+    #[builder(props = once)]
+    field2: Option<usize>,
+
+    #[builder(props = into, once)]
+    field3: Option<usize>,
+
+    #[builder(check = |num| num % 2 == 0)]
+    field4: Option<usize>,
+
+    #[builder(props = into)]
+    #[builder(check = |num| num % 2 == 0)]
+    field5: Option<usize>,
+
+    #[builder(props = into, once)]
+    #[builder(check = is_even)]
+    field6: Option<usize>,
+
+    #[builder(name = new_field7)]
+    #[builder(props = into, once)]
+    #[builder(check = is_even)]
+    field7: Option<usize>,
+
+    #[builder(props = into, once)]
+    #[builder(check = |nums| nums.iter().all(is_even))]
+    #[builder(each = arg, is_even)]
+    args: Option<Vec<usize>>,
+}
+
+fn main() {}

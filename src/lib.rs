@@ -123,11 +123,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         });
 
         if attrs.check.is_some() {
-            builder_fields.push(
-                quote! {
-                    #check_field: ::std::boxed::Box<dyn Fn(&#ty) -> ::std::result::Result<(), ::std::boxed::Box<dyn ::std::error::Error>>>
-                }
-            );
+            builder_fields.push(quote! {
+                #check_field: ::std::boxed::Box<dyn Fn(&#ty) -> bool>
+            });
         }
 
         if let Some(lazy) = &attrs.lazy {
@@ -270,7 +268,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         };
 
         let input_ty = if attrs.props.into {
-            quote! { Into<#ty> }
+            quote! { impl Into<#ty> }
         } else {
             quote! { #ty }
         };
@@ -279,7 +277,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let check = attrs.check.as_ref().map(|_| {
             quote! {
-                if !self.#check_field(&#ident) {
+                if !(self.#check_field)(&#ident) {
                     return Err("Provided value is not valid".into());
                 }
             }
@@ -314,6 +312,12 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
         };
 
+        let value = if attrs.props.into {
+            quote! { let #ident = #ident.into(); }
+        } else {
+            quote! { let #ident = #ident; }
+        };
+
         let assignment = if required {
             quote! { self.#ident.write(#ident); }
         } else if wrapped_in_option.is_some() {
@@ -324,6 +328,8 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let setter = quote! {
             #visibility fn #setter_name(mut self, #ident: #input_ty) -> #return_ty {
+                #value
+
                 #check
 
                 #assignment
