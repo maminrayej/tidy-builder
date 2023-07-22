@@ -6,18 +6,6 @@ use std::collections::HashMap;
 use convert_case::{Case, Casing};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
-use ty::wrapped_in;
-
-macro_rules! return_on_error {
-    ($e: expr) => {
-        match $e {
-            Ok(val) => val,
-            Err(err) => {
-                return err.to_compile_error().into();
-            }
-        }
-    };
-}
 
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -48,7 +36,12 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let mut field_to_attrs = HashMap::with_capacity(named.len());
     for field in named.iter() {
-        let attrs = return_on_error!(attr::parse_attrs(field));
+        let attrs = match attr::parse_attrs(field) {
+            Ok(attrs) => attrs,
+            Err(error) => {
+                return error.into_compile_error().into();
+            }
+        };
 
         field_to_attrs.insert(field, attrs);
     }
@@ -91,24 +84,23 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut req_index: usize = 0;
     for field in named.iter() {
         let ident = &field.ident;
-        let ty = &field.ty;
         let attrs = &field_to_attrs[field];
 
-        let wrapped_in_option = ty::wrapped_in_option(ty);
+        let optional = ty::wrapped_in_option(&field.ty);
 
-        if wrapped_in_option.is_some() && attrs.value.is_some() {
-            return syn::Error::new(ty.span(), "Option cannot have a default value.")
+        if optional.is_some() && attrs.value.is_some() {
+            return syn::Error::new(field.ty.span(), "Option cannot have a value property.")
                 .into_compile_error()
                 .into();
         }
 
-        let ty = if let Some(wrapped) = wrapped_in_option {
-            wrapped
+        let ty = if let Some(inner_ty) = optional {
+            inner_ty
         } else {
-            ty
+            &field.ty
         };
 
-        let required = wrapped_in_option.is_none() && !attrs.has_value();
+        let required = optional.is_none() && !attrs.has_value();
 
         let lazy_field = format_ident!("lazy_{}", ident.as_ref().unwrap());
 
@@ -120,7 +112,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         });
 
         if let Some(lazy) = &attrs.lazy {
-            let lazy_ty = if lazy.is_async {
+            let mut lazy_ty = if lazy.is_async {
                 is_build_async = true;
 
                 quote! { ::std::boxed::box<dyn ::std::future::Future<Output = #ty>> }
@@ -128,11 +120,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 quote! { ::std::boxed::Box<dyn Fn() -> #ty> }
             };
 
-            let lazy_ty = if lazy.callable.is_none() {
-                quote! { ::std::option::Option<#lazy_ty> }
-            } else {
-                lazy_ty
-            };
+            if lazy.callable.is_none() {
+                lazy_ty = quote! { ::std::option::Option<#lazy_ty> };
+            }
 
             builder_fields.push(quote! {
                #lazy_field: #lazy_ty
@@ -145,12 +135,12 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 attr::Value::Default(_) => quote! { #ident: ::std::default::Default::default() },
                 attr::Value::Lit(lit) => quote! { #ident: #lit },
                 attr::Value::Callable(callable) => {
-                    if !callable.is_async {
-                        quote! { #ident: (#callable)() }
-                    } else {
+                    if callable.is_async {
                         is_builder_async = true;
 
                         quote! { #ident: (#callable)().await }
+                    } else {
+                        quote! { #ident: (#callable)() }
                     }
                 }
             }
@@ -171,7 +161,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         builder_moves.push(quote! { #ident: self.#ident });
 
-        /* Generate builder field name */
+        /* Generate builder field names */
         builder_field_names.push(quote! { #ident });
 
         /* Generate builder final values */
@@ -189,7 +179,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 quote! {}
             };
 
-            let override_expr = if wrapped_in_option.is_some() {
+            let override_expr = if optional.is_some() {
                 quote! { Some(self.#lazy_field()#is_await) }
             } else {
                 quote! { self.#lazy_field()#is_await }
@@ -232,17 +222,16 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut req_index = 0;
     for field in named.iter() {
         let ident = &field.ident;
-        let ty = &field.ty;
         let attrs = &field_to_attrs[field];
 
-        let wrapped_in_option = ty::wrapped_in_option(ty);
-        let ty = if let Some(wrapped) = wrapped_in_option {
-            wrapped
+        let optional = ty::wrapped_in_option(&field.ty);
+        let ty = if let Some(inner_ty) = optional {
+            inner_ty
         } else {
-            ty
+            &field.ty
         };
 
-        let required = wrapped_in_option.is_none() && !attrs.has_value();
+        let required = optional.is_none() && !attrs.has_value();
 
         let setter_name = if let Some(name) = &attrs.name {
             name
@@ -299,11 +288,10 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
         };
 
-        let value = if attrs.props.into {
-            quote! { let #ident = #ident.into(); }
-        } else {
-            quote! { let #ident = #ident; }
-        };
+        let value = attrs
+            .props
+            .into
+            .then_some(Some(quote! { let #ident = #ident.into(); }));
 
         let assignment = if attrs.value.is_none() {
             quote! { self.#ident = Some(#ident); }
@@ -347,13 +335,26 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         if let Some(each) = &attrs.each {
             let each_ident = &each.ident;
 
-            let inner_ty = wrapped_in(ty, None).unwrap();
+            let inner_ty = match ty::wrapped_in(ty, None) {
+                Some(inner_ty) => inner_ty,
+                None => {
+                    return syn::Error::new(
+                        ty.span(),
+                        "Expected a container with generic arguments",
+                    )
+                    .into_compile_error()
+                    .into();
+                }
+            };
+
             let inner_args = &inner_ty.args;
 
             let container_ident = if let syn::Type::Path(type_path) = ty {
                 &type_path.path.segments.last().unwrap().ident
             } else {
-                return syn::Error::new(ty.span(), "").into_compile_error().into();
+                return syn::Error::new(ty.span(), "Failed to get the container name")
+                    .into_compile_error()
+                    .into();
             };
 
             let update_container = if attrs.has_value() {
@@ -386,17 +387,13 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 None
             };
 
-            let return_ty = if each_check.is_some() && check.is_none() {
-                quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> }
-            } else {
-                return_ty
-            };
+            if each_check.is_some() && check.is_none() {
+                return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
+            }
 
-            let return_val = if each_check.is_some() && check.is_none() {
-                quote! { Ok(#return_val) }
-            } else {
-                return_val
-            };
+            if each_check.is_some() && check.is_none() {
+                return_val = quote! { Ok(#return_val) };
+            }
 
             builder_setters.push(quote! {
                 pub fn #each_ident(mut self, #each_ident: (#inner_args)) -> #return_ty {
