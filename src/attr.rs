@@ -193,7 +193,18 @@ pub enum FieldAttr {
 impl syn::parse::Parse for FieldAttr {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let ident = input.parse::<syn::Ident>()?;
-        let _ = input.parse::<syn::token::Eq>()?;
+
+        if let Err(_) = input.parse::<syn::token::Eq>() {
+            if ident == "lazy" {
+                return Ok(FieldAttr::Lazy(Lazy {
+                    do_override: None,
+                    is_async: false,
+                    callable: None,
+                }));
+            } else {
+                return Err(syn::Error::new(ident.span(), "Expected lazy"));
+            }
+        }
 
         if ident == "props" {
             input.parse::<Props>().map(FieldAttr::Props)

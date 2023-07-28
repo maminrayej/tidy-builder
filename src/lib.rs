@@ -1,3 +1,5 @@
+/* TODO: apply check to initial values and values returned by lazy functions */
+
 mod attr;
 mod ty;
 
@@ -94,53 +96,47 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 .into();
         }
 
-        let ty = if let Some(inner_ty) = optional {
-            inner_ty
-        } else {
-            &field.ty
-        };
+        let ty = optional.unwrap_or(&field.ty);
 
         let required = optional.is_none() && !attrs.has_value();
 
         let lazy_field = format_ident!("lazy_{}", ident.as_ref().unwrap());
 
         /* Generate builder fields */
-        builder_fields.push(if attrs.value.is_none() {
-            quote! { #ident: ::std::option::Option<#ty> }
-        } else {
-            quote! { #ident: #ty }
-        });
+        builder_fields.push(quote! { #ident: ::std::option::Option<#ty> });
 
         if let Some(lazy) = &attrs.lazy {
-            let mut lazy_ty = if lazy.is_async {
+            let lazy_ty = if lazy.is_async {
                 is_build_async = true;
 
-                quote! { ::std::boxed::box<dyn ::std::future::Future<Output = #ty>> }
+                quote! {
+                    ::std::option::Option<::std::boxed::Box<dyn ::std::future::Future<Output = #ty>>>
+                }
             } else {
-                quote! { ::std::boxed::Box<dyn Fn() -> #ty> }
+                quote! {
+                    ::std::option::Option<::std::boxed::Box<dyn Fn() -> #ty>>
+                }
             };
 
-            if lazy.callable.is_none() {
-                lazy_ty = quote! { ::std::option::Option<#lazy_ty> };
-            }
-
-            builder_fields.push(quote! {
-               #lazy_field: #lazy_ty
-            });
+            builder_fields.push(quote! { #lazy_field: #lazy_ty });
         }
 
         /* Generate initialization of each field of the builder */
         builder_inits.push(if let Some(value) = &attrs.value {
             match value {
-                attr::Value::Default(_) => quote! { #ident: ::std::default::Default::default() },
-                attr::Value::Lit(lit) => quote! { #ident: #lit },
+                attr::Value::Default(_) => {
+                    quote! { #ident: Some(::std::default::Default::default()) }
+                }
+                attr::Value::Lit(lit) => {
+                    quote! { #ident: Some(#lit) }
+                }
                 attr::Value::Callable(callable) => {
                     if callable.is_async {
                         is_builder_async = true;
 
-                        quote! { #ident: (#callable)().await }
+                        quote! { #ident: Some((#callable)().await) }
                     } else {
-                        quote! { #ident: (#callable)() }
+                        quote! { #ident: Some((#callable)()) }
                     }
                 }
             }
@@ -148,12 +144,11 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             quote! { #ident: None }
         });
 
-        /* Generate builder moves and inits */
         if let Some(lazy) = &attrs.lazy {
             builder_moves.push(quote! { #lazy_field: self.#lazy_field });
 
             if let Some(callable) = &lazy.callable {
-                builder_inits.push(quote! { #lazy_field: Box::new(#callable) });
+                builder_inits.push(quote! { #lazy_field: Some(Box::new(#callable)) });
             } else {
                 builder_inits.push(quote! { #lazy_field: None });
             }
@@ -165,43 +160,48 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         builder_field_names.push(quote! { #ident });
 
         /* Generate builder final values */
-        let final_value = if required {
-            quote! { unsafe { self.#ident.unwrap_unchecked() } }
-        } else {
-            quote! { self.#ident }
+        let initial_value = quote! {
+            let #ident = self.#ident;
         };
 
-        let mut do_override = quote! {};
+        let mut override_stmt = quote! {};
         if let Some(lazy) = &attrs.lazy {
-            let is_await = if lazy.is_async {
-                quote! { .await }
+            let is_await = lazy.is_async.then_some(quote! { .await });
+
+            let none_none = if optional.is_some() {
+                quote! { None }
             } else {
-                quote! {}
+                quote! { unreachable!() }
             };
 
-            let override_expr = if optional.is_some() {
-                quote! { Some(self.#lazy_field()#is_await) }
+            let some_some = if lazy.do_override.is_some() {
+                quote! { (lazy)()#is_await }
             } else {
-                quote! { self.#lazy_field()#is_await }
+                quote! { value }
             };
 
-            do_override = if lazy.do_override.is_some() {
-                quote! { let #ident = #override_expr; }
-            } else {
-                quote! {
-                    let #ident = if self.#ident.is_none() {
-                        #override_expr
-                    } else {
-                        #final_value;
-                    };
-                }
+            override_stmt = quote! {
+                let #ident = match (self.#lazy_field, self.#ident) {
+                    (Some(lazy), Some(value)) => Some(#some_some),
+                    (Some(lazy), None) => Some((lazy)()#is_await),
+                    (None, Some(value)) => Some(value),
+                    (None, None) => #none_none,
+                };
             };
         }
 
-        builder_final_values.push(quote! {
-           let #ident = #final_value;
+        let final_value = if optional.is_some() {
+            quote! { let #ident = #ident; }
+        } else {
+            quote! { let #ident = unsafe { #ident.unwrap_unchecked() }; }
+        };
 
-            #do_override
+        builder_final_values.push(quote! {
+            #initial_value
+
+            #override_stmt
+
+            #final_value
         });
 
         /* Generate builder generic params */
@@ -225,19 +225,10 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let attrs = &field_to_attrs[field];
 
         let optional = ty::wrapped_in_option(&field.ty);
-        let ty = if let Some(inner_ty) = optional {
-            inner_ty
-        } else {
-            &field.ty
-        };
-
         let required = optional.is_none() && !attrs.has_value();
 
-        let setter_name = if let Some(name) = &attrs.name {
-            name
-        } else {
-            ident.as_ref().unwrap()
-        };
+        let ty = optional.unwrap_or(&field.ty);
+        let setter_name = attrs.name.as_ref().or(ident.as_ref());
 
         let input_ty = if attrs.props.into {
             quote! { impl Into<#ty> }
@@ -247,7 +238,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let visibility = (!attrs.props.hide).then_some(Some(quote! { pub }));
 
-        let check = attrs.check.as_ref().map(|check| {
+        let check_stmt = attrs.check.as_ref().map(|check| {
             let check_ty = quote! { &dyn Fn(&#ty) -> bool };
 
             quote! {
@@ -268,7 +259,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         } else {
             quote! { self }
         };
-        if check.is_some() {
+        if check_stmt.is_some() {
             return_val = quote! { Ok(#return_val) };
         }
 
@@ -284,7 +275,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 #builder<#(#lifetime_names,)* #(#const_names,)* #(#builder_const_names,)* #(#type_names,)*>
             }
         };
-        if check.is_some() {
+        if check_stmt.is_some() {
             return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
         };
 
@@ -293,17 +284,13 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             .into
             .then_some(Some(quote! { let #ident = #ident.into(); }));
 
-        let assignment = if attrs.value.is_none() {
-            quote! { self.#ident = Some(#ident); }
-        } else {
-            quote! { self.#ident = #ident; }
-        };
+        let assignment = quote! { self.#ident = Some(#ident); };
 
         let setter = quote! {
             #visibility fn #setter_name(mut self, #ident: #input_ty) -> #return_ty {
                 #value
 
-                #check
+                #check_stmt
 
                 #assignment
 
@@ -325,8 +312,43 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     #setter
                 }
             });
-        } else {
-            if required || !attrs.props.skip {
+        } else if required || !attrs.props.skip {
+            builder_setters.push(setter);
+        }
+
+        /* Generate lazy setter */
+        if let Some(lazy) = &attrs.lazy {
+            let lazy_ident = format_ident!("lazy_{}", ident.as_ref().unwrap());
+
+            let input_ty = if lazy.is_async {
+                quote! { ::std::boxed::Box<dyn ::std::future::Future<Output = #ty>> }
+            } else {
+                quote! { ::std::boxed::Box<dyn Fn() -> #ty> }
+            };
+
+            let setter = quote! {
+                #visibility fn #lazy_ident(mut self, #lazy_ident: #input_ty) -> #return_ty {
+                    self.#lazy_ident = Some(#lazy_ident);
+
+                    #return_val
+                }
+            };
+
+            if required && attrs.props.once {
+                let before_names = builder_const_names.iter().take(req_index);
+                let after_names = builder_const_names.iter().skip(req_index + 1);
+                let before_params = builder_const_params.iter().take(req_index);
+                let after_params = builder_const_params.iter().skip(req_index + 1);
+
+                builder_impls.push(quote! {
+                impl<#(#lifetime_params,)* #(#const_params,)* #(#before_params,)*  #(#after_params,)* #(#type_params,)*>
+                #builder<#(#lifetime_names,)* #(#const_names,)* #(#before_names,)* false, #(#after_names,)* #(#type_names,)*>
+                    #where_clause
+                {
+                    #setter
+                }
+            });
+            } else if required || !attrs.props.skip {
                 builder_setters.push(setter);
             }
         }
@@ -357,53 +379,64 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     .into();
             };
 
-            let update_container = if attrs.has_value() {
-                quote! { self.#ident.extend(Some(#each_ident)); }
-            } else {
-                quote! {
-                    match self.#ident.as_mut() {
-                        Some(c) => c.extend(Some(#each_ident)),
-
-                        None => {
-                            let mut c = #container_ident::new();
-                            c.extend(Some(#each_ident));
-                            self.#ident = Some(c);
-                        }
+            let update_stmt = quote! {
+                match self.#ident.as_mut() {
+                    Some(c) => c.extend(Some(#each_ident)),
+                    None => {
+                        let mut c = #container_ident::new();
+                        c.extend(Some(#each_ident));
+                        self.#ident = Some(c);
                     }
                 }
             };
 
-            let each_check = if let Some(callable) = &each.callable {
+            let check_stmt = each.callable.as_ref().map(|callable| {
                 let check_ty = quote! { &dyn Fn(&(#inner_args)) -> bool };
 
-                Some(quote! {
+                quote! {
                     let check: #check_ty = &#callable;
 
                     if !check(&#each_ident) {
                         return Err("Provided value is not valid".into());
                     }
-                })
-            } else {
-                None
-            };
+                }
+            });
 
-            if each_check.is_some() && check.is_none() {
+            if check_stmt.is_some() && check_stmt.is_none() {
                 return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
             }
 
-            if each_check.is_some() && check.is_none() {
+            if check_stmt.is_some() && check_stmt.is_none() {
                 return_val = quote! { Ok(#return_val) };
             }
 
-            builder_setters.push(quote! {
-                pub fn #each_ident(mut self, #each_ident: (#inner_args)) -> #return_ty {
-                    #each_check
+            let setter = quote! {
+                #visibility fn #each_ident(mut self, #each_ident: (#inner_args)) -> #return_ty {
+                    #check_stmt
 
-                    #update_container
+                    #update_stmt
 
                     #return_val
                 }
-            });
+            };
+
+            if required && attrs.props.once {
+                let before_names = builder_const_names.iter().take(req_index);
+                let after_names = builder_const_names.iter().skip(req_index + 1);
+                let before_params = builder_const_params.iter().take(req_index);
+                let after_params = builder_const_params.iter().skip(req_index + 1);
+
+                builder_impls.push(quote! {
+                    impl<#(#lifetime_params,)* #(#const_params,)* #(#before_params,)*  #(#after_params,)* #(#type_params,)*>
+                    #builder<#(#lifetime_names,)* #(#const_names,)* #(#before_names,)* false, #(#after_names,)* #(#type_names,)*>
+                        #where_clause
+                    {
+                        #setter
+                    }
+                });
+            } else if required || !attrs.props.skip {
+                builder_setters.push(setter);
+            }
         }
 
         /* Generate guard traits */
