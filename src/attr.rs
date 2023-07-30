@@ -7,6 +7,9 @@
     #[lazy = override, async, <callable>]
 */
 
+use proc_macro2::TokenStream;
+use quote::quote;
+
 #[derive(Debug, Clone)]
 pub struct Lazy {
     pub do_override: Option<syn::token::Override>,
@@ -271,5 +274,15 @@ impl Attributes {
         let has_lazy_value = self.lazy.is_some() && self.lazy.as_ref().unwrap().callable.is_some();
 
         self.value.is_some() || has_lazy_value
+    }
+
+    pub fn check_stmt(&self, ident: Option<&syn::Ident>) -> Option<TokenStream> {
+        self.check.as_ref().map(|check| {
+            quote! {
+                if !(#check)(&#ident) {
+                    return Err("Provided value is not valid".into());
+                }
+            }
+        })
     }
 }
