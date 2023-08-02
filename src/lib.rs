@@ -36,6 +36,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     let ident = &ast.ident;
     let builder = format_ident!("{}Builder", ast.ident);
+    let builder_visibility = &ast.vis;
 
     /* Parse field attributes */
     let mut field_to_attrs = HashMap::with_capacity(named.len());
@@ -456,7 +457,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 match self.#ident.as_mut() {
                     Some(c) => c.extend(Some(#each_ident)),
                     None => {
-                        let mut c = #container_ident::new();
+                        let mut c = #container_ident::default();
                         c.extend(Some(#each_ident));
                         self.#ident = Some(c);
                     }
@@ -550,7 +551,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
 
     quote! {
-        pub struct #builder<
+        #builder_visibility struct #builder<
             #(#lifetime_params,)*
             #(#type_params,)*
             #(#const_params,)*
