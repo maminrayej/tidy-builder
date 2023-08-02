@@ -29,7 +29,7 @@ where
     #[builder(lazy  = override)]
     bar: Option<usize>,
 
-    #[builder(props = once, into)]
+    #[builder(props = into)]
     #[builder(name  = set_baz)]
     #[builder(lazy  = override)]
     baz: Option<T>,
@@ -38,7 +38,6 @@ where
     #[builder(each  = arg, |n: &usize| n % 2 == 0)]
     qux: Option<Vec<&'a usize>>,
 
-    #[builder(props = once)]
     #[builder(name  = set_quxx)]
     #[builder(each  = kv, |&(k, _)| k % 2 == 0)]
     quxx: Option<HashMap<usize, &'b str>>,

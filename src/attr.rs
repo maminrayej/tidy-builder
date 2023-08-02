@@ -41,6 +41,14 @@ impl syn::parse::Parse for Lazy {
                     callable = Some(input.parse::<CallableItem>()?);
                 }
             }
+        } else if input.peek(syn::Token![async]) {
+            is_async = input.parse::<syn::token::Async>().is_ok();
+
+            if input.peek(syn::Token![,]) {
+                let _ = input.parse::<syn::token::Comma>().unwrap();
+
+                callable = Some(input.parse::<CallableItem>()?);
+            }
         } else {
             if !input.is_empty() {
                 callable = Some(input.parse::<CallableItem>()?)

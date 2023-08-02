@@ -15,52 +15,46 @@ impl From<MyUsize> for usize {
 #[derive(tidy_builder::Builder)]
 pub struct Test<'a, 'b: 'a, T, const B: bool>
 where
-    T: std::fmt::Debug + std::default::Default,
+    T: std::fmt::Debug,
 {
-    #[builder(value = 8)]
     #[builder(props = into)]
-    #[builder(check = |n| n % 2 == 0)]
+    #[builder(check = |n: &usize| n % 2 == 0)]
     #[builder(name  = set_foo)]
-    #[builder(lazy)]
-    foo: usize,
+    #[builder(lazy  = async)]
+    foo: Option<usize>,
 
-    #[builder(value = 0)]
     #[builder(props = into)]
     #[builder(check = is_even)]
     #[builder(name  = set_bar)]
-    #[builder(lazy  = override)]
-    bar: usize,
+    #[builder(lazy  = override, async)]
+    bar: Option<usize>,
 
-    #[builder(value = default)]
     #[builder(props = into)]
     #[builder(name  = set_baz)]
-    #[builder(lazy  = override)]
-    baz: T,
+    #[builder(lazy  = override, async)]
+    baz: Option<T>,
 
-    #[builder(value = default)]
     #[builder(name  = set_qux)]
     #[builder(each  = arg, |n: &usize| n % 2 == 0)]
-    qux: Vec<&'a usize>,
+    qux: Option<Vec<&'a usize>>,
 
-    #[builder(value = default)]
     #[builder(name  = set_quxx)]
     #[builder(each  = kv, |&(k, _)| k % 2 == 0)]
-    quxx: HashMap<usize, &'b str>,
+    quxx: Option<HashMap<usize, &'b str>>,
 }
 
-#[test]
-fn default() {
+#[tokio::test]
+async fn optional_async() {
     let arg0 = 0;
     let arg2 = 2;
 
     let test = Test::<bool, false>::builder()
-        .unwrap()
         .set_foo(MyUsize(0))
         .unwrap()
-        .lazy_foo(Box::new(|| 2))
+        .lazy_foo(Box::pin(async { 2 }))
         .set_bar(0usize)
         .unwrap()
-        .lazy_bar(Box::new(|| 2))
+        .lazy_bar(Box::pin(async { 2 }))
         .set_baz(true)
         .arg(&arg0)
         .unwrap()
@@ -69,11 +63,12 @@ fn default() {
         .kv((0, "ferris"))
         .unwrap()
         .build()
+        .await
         .unwrap();
 
-    assert_eq!(test.foo, 0);
-    assert_eq!(test.bar, 2);
-    assert_eq!(test.baz, true);
-    assert_eq!(test.qux, vec![&arg0, &arg2]);
-    assert_eq!(test.quxx, HashMap::from_iter(Some((0, "ferris"))));
+    assert_eq!(test.foo, Some(0));
+    assert_eq!(test.bar, Some(2));
+    assert_eq!(test.baz, Some(true));
+    assert_eq!(test.qux, Some(vec![&arg0, &arg2]));
+    assert_eq!(test.quxx, Some(HashMap::from_iter(Some((0, "ferris")))));
 }

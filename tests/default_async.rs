@@ -12,30 +12,35 @@ impl From<MyUsize> for usize {
     }
 }
 
+async fn give_eight() -> usize {
+    8
+}
+
+async fn give_false() -> bool {
+    false
+}
+
 #[derive(tidy_builder::Builder)]
-pub struct Test<'a, 'b: 'a, T, const B: bool>
-where
-    T: std::fmt::Debug + std::default::Default,
-{
-    #[builder(value = 8)]
+pub struct Test<'a, 'b: 'a, const B: bool> {
+    #[builder(value = async give_eight)]
     #[builder(props = into)]
     #[builder(check = |n| n % 2 == 0)]
     #[builder(name  = set_foo)]
     #[builder(lazy)]
     foo: usize,
 
-    #[builder(value = 0)]
+    #[builder(value = async || async { 0 })]
     #[builder(props = into)]
     #[builder(check = is_even)]
     #[builder(name  = set_bar)]
     #[builder(lazy  = override)]
     bar: usize,
 
-    #[builder(value = default)]
+    #[builder(value = async || give_false())]
     #[builder(props = into)]
     #[builder(name  = set_baz)]
     #[builder(lazy  = override)]
-    baz: T,
+    baz: bool,
 
     #[builder(value = default)]
     #[builder(name  = set_qux)]
@@ -48,12 +53,13 @@ where
     quxx: HashMap<usize, &'b str>,
 }
 
-#[test]
-fn default() {
+#[tokio::test]
+async fn default_async() {
     let arg0 = 0;
     let arg2 = 2;
 
-    let test = Test::<bool, false>::builder()
+    let test = Test::<false>::builder()
+        .await
         .unwrap()
         .set_foo(MyUsize(0))
         .unwrap()

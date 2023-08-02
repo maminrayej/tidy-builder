@@ -15,52 +15,47 @@ impl From<MyUsize> for usize {
 #[derive(tidy_builder::Builder)]
 pub struct Test<'a, 'b: 'a, T, const B: bool>
 where
-    T: std::fmt::Debug + std::default::Default,
+    T: std::fmt::Debug,
 {
-    #[builder(value = 8)]
     #[builder(props = into)]
     #[builder(check = |n| n % 2 == 0)]
     #[builder(name  = set_foo)]
-    #[builder(lazy)]
+    #[builder(lazy = async)]
     foo: usize,
 
-    #[builder(value = 0)]
     #[builder(props = into)]
     #[builder(check = is_even)]
     #[builder(name  = set_bar)]
-    #[builder(lazy  = override)]
+    #[builder(lazy  = override, async)]
     bar: usize,
 
-    #[builder(value = default)]
-    #[builder(props = into)]
+    #[builder(props = once, into)]
     #[builder(name  = set_baz)]
-    #[builder(lazy  = override)]
+    #[builder(lazy  = override, async)]
     baz: T,
 
-    #[builder(value = default)]
     #[builder(name  = set_qux)]
     #[builder(each  = arg, |n: &usize| n % 2 == 0)]
     qux: Vec<&'a usize>,
 
-    #[builder(value = default)]
+    #[builder(props = once)]
     #[builder(name  = set_quxx)]
     #[builder(each  = kv, |&(k, _)| k % 2 == 0)]
     quxx: HashMap<usize, &'b str>,
 }
 
-#[test]
-fn default() {
+#[tokio::test]
+async fn required_async() {
     let arg0 = 0;
     let arg2 = 2;
 
     let test = Test::<bool, false>::builder()
-        .unwrap()
         .set_foo(MyUsize(0))
         .unwrap()
-        .lazy_foo(Box::new(|| 2))
+        .lazy_foo(Box::pin(async { 2 }))
         .set_bar(0usize)
         .unwrap()
-        .lazy_bar(Box::new(|| 2))
+        .lazy_bar(Box::pin(async { 2 }))
         .set_baz(true)
         .arg(&arg0)
         .unwrap()
@@ -69,6 +64,7 @@ fn default() {
         .kv((0, "ferris"))
         .unwrap()
         .build()
+        .await
         .unwrap();
 
     assert_eq!(test.foo, 0);

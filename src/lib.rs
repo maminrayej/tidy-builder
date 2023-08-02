@@ -7,6 +7,14 @@ use convert_case::{Case, Casing};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 
+macro_rules! error {
+    ($src: expr, $msg: expr) => {
+        return syn::Error::new($src.span(), $msg)
+            .into_compile_error()
+            .into();
+    };
+}
+
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = syn::parse_macro_input!(input as syn::DeriveInput);
@@ -23,12 +31,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
     ) = &ast.data
     else {
-        return syn::Error::new(
-            ast.span(),
-            "Only structs with named fields are supported"
-        )
-        .into_compile_error()
-        .into();
+        error!(ast.span(), "Only structs with named fields are supported");
     };
 
     let ident = &ast.ident;
@@ -102,12 +105,28 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let ident = &field.ident;
         let attrs = &field_to_attrs[field];
 
-        /* TODO: validate attribute */
         let optional = ty::wrapped_in_option(&field.ty);
+        let required = optional.is_none() && !attrs.has_value();
+
+        /* Validate attributes */
+        if optional.is_some() {
+            if attrs.value.is_some() {
+                error!(field.ty.span(), "Optional field cannot have default value");
+            }
+            if attrs.props.once {
+                error!(field.ty.span(), "Once cannot be applied to optional fields");
+            }
+        } else if required {
+            if attrs.props.skip {
+                error!(field.span(), "Cannot skip a required field");
+            }
+        } else {
+            if attrs.props.once {
+                error!(field.span(), "Once cannot be applied to fields with values");
+            }
+        }
 
         let ty = optional.unwrap_or(&field.ty);
-
-        let required = optional.is_none() && !attrs.has_value();
 
         let lazy_field = format_ident!("lazy_{}", ident.as_ref().unwrap());
 
@@ -118,7 +137,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let lazy_ty = if lazy.is_async {
                 is_build_async = true;
 
-                quote! { ::std::option::Option<::std::boxed::Box<dyn ::std::future::Future<Output = #ty>>> }
+                quote! { ::std::option::Option<::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output = #ty>>>> }
             } else {
                 quote! { ::std::option::Option<::std::boxed::Box<dyn FnOnce() -> #ty>> }
             };
@@ -132,7 +151,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         builder_inits.push(if let Some(value) = &attrs.value {
             is_builder_checked |= check_stmt.is_some();
 
-            let initial_value = match value {
+            let init_stmt = match value {
                 attr::Value::Default(_) => {
                     quote! { let #ident = ::std::default::Default::default(); }
                 }
@@ -152,7 +171,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             quote! {
                 #ident: {
-                    #initial_value
+                    #init_stmt
                     #check_stmt
                     Some(#ident)
                 }
@@ -177,11 +196,15 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         builder_field_names.push(quote! { #ident });
 
         /* Generate builder final values */
-        let initial_value = quote! { let #ident = self.#ident; };
+        let init_stmt = quote! { let #ident = self.#ident; };
 
         let mut override_stmt = quote! {};
         if let Some(lazy) = &attrs.lazy {
-            let is_await = lazy.is_async.then_some(quote! { .await });
+            let call_lazy = if lazy.is_async {
+                quote! { lazy.await }
+            } else {
+                quote! { (lazy)() }
+            };
 
             let none_none = if optional.is_some() {
                 quote! { None }
@@ -190,7 +213,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             };
 
             let some_some = if lazy.do_override.is_some() {
-                quote! { (lazy)()#is_await }
+                call_lazy.clone()
             } else {
                 quote! { value }
             };
@@ -198,14 +221,14 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             override_stmt = quote! {
                 let #ident = match (self.#lazy_field, #ident) {
                     (Some(lazy), Some(value)) => Some(#some_some),
-                    (Some(lazy), None) => Some((lazy)()#is_await),
+                    (Some(lazy), None) => Some(#call_lazy),
                     (None, Some(value)) => Some(value),
                     (None, None) => #none_none,
                 };
             };
         }
 
-        let final_value = optional.is_none().then_some(Some(
+        let unwrap_stmt = optional.is_none().then_some(Some(
             quote! { let #ident = unsafe { #ident.unwrap_unchecked() }; },
         ));
 
@@ -227,9 +250,9 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         builder_final_values.push(quote! {
             let #ident = {
-                #initial_value
+                #init_stmt
                 #override_stmt
-                #final_value
+                #unwrap_stmt
                 #check_stmt
                 #ident
             };
@@ -327,7 +350,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let lazy_ident = format_ident!("lazy_{}", ident.as_ref().unwrap());
 
             let input_ty = if lazy.is_async {
-                quote! { ::std::boxed::Box<dyn ::std::future::Future<Output = #ty>> }
+                quote! { ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output = #ty>>> }
             } else {
                 quote! { ::std::boxed::Box<dyn FnOnce() -> #ty> }
             };
@@ -347,13 +370,13 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 let after_params = builder_const_params.iter().skip(req_index + 1);
 
                 builder_impls.push(quote! {
-                impl<#(#lifetime_params,)*  #(#type_params,)* #(#const_params,)* #(#before_params,)*  #(#after_params,)*>
-                #builder<#(#lifetime_names,)* #(#type_names,)* #(#const_names,)* #(#before_names,)* false, #(#after_names,)*>
-                    #where_clause
-                {
-                    #setter
-                }
-            });
+                    impl<#(#lifetime_params,)*  #(#type_params,)* #(#const_params,)* #(#before_params,)*  #(#after_params,)*>
+                    #builder<#(#lifetime_names,)* #(#type_names,)* #(#const_names,)* #(#before_names,)* false, #(#after_names,)*>
+                        #where_clause
+                    {
+                        #setter
+                    }
+                });
             } else if required || !attrs.props.skip {
                 builder_setters.push(setter);
             }
@@ -366,7 +389,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
 
         /* Generate setter */
-        let initial_stmt = attrs
+        let init_stmt = attrs
             .props
             .into
             .then_some(Some(quote! { let #ident = #ident.into(); }));
@@ -375,7 +398,7 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let setter = quote! {
             #visibility fn #setter_name(mut self, #ident: #input_ty) -> #return_ty {
-                #initial_stmt
+                #init_stmt
 
                 #check_stmt
 
@@ -451,7 +474,6 @@ pub fn builder(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             if each_check_stmt.is_some() && check_stmt.is_none() {
                 return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
             }
-
             if each_check_stmt.is_some() && check_stmt.is_none() {
                 return_val = quote! { Ok(#return_val) };
             }
