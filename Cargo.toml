@@ -1,6 +1,6 @@
 [package]
 name = "tidy-builder"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "tidy-builder is a builder generator that is compile-time correct"
 authors = ["m.amin.rayej <m.amin.rayej@gmail.com>"]
@@ -23,4 +23,3 @@ convert_case = "0.6.0"
 
 [dev-dependencies]
 tokio = { version = "1.29.1", features = ["full"] }
-trybuild = "1.0.81"
