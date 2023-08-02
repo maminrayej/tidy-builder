@@ -124,6 +124,6 @@ Syntax: \
 - Provide an async lazy provider: `#[builder(lazy, async)]`
 - Provide a default lazy provider: `#[builder(lazy, callable)]`
 
-*NOTE*: The lazy provider will be called when you call the `build` function.
+*NOTE*: The lazy provider will be called when you call the `build` function. \
 *NOTE*: If you set a lazy provider using an async callable, the `build` function will be async. \
 *NOTE*: If you set a lazy provider and specify a validator, the `build` function will return a `Result`.
