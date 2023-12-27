@@ -1,7 +1,0 @@
-error: Builder does not support unit structs
- --> tests/ui/error/builder_does_not_support_unit_structs.rs:1:10
-  |
-1 | #[derive(tidy_builder::Builder)]
-  |          ^^^^^^^^^^^^^^^^^^^^^
-  |
-  = note: this error originates in the derive macro `tidy_builder::Builder` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,5 +1,0 @@
-error: Not expected a literal
- --> tests/ui/error/not_expected_literal.rs:3:15
-  |
-3 |     #[builder("arg")]
-  |               ^^^^^
