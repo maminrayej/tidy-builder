@@ -115,6 +115,40 @@ impl syn::parse::Parse for Lazy {
 }
 
 #[derive(Debug)]
+enum Attr {
+    Setter(Setter),
+    Vis(syn::Visibility),
+    Each(Each),
+    Value(Value),
+    Check(Function),
+    Lazy(Lazy),
+}
+
+impl syn::parse::Parse for Attr {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let ident = input.parse::<syn::Ident>()?;
+
+        let _ = input.parse::<syn::Token![=]>()?;
+
+        if ident == "setter" {
+            input.parse::<Setter>().map(Attr::Setter)
+        } else if ident == "vis" {
+            input.parse::<syn::Visibility>().map(Attr::Vis)
+        } else if ident == "each" {
+            input.parse::<Each>().map(Attr::Each)
+        } else if ident == "value" {
+            input.parse::<Value>().map(Attr::Value)
+        } else if ident == "check" {
+            input.parse::<Function>().map(Attr::Check)
+        } else if ident == "lazy" {
+            input.parse::<Lazy>().map(Attr::Lazy)
+        } else {
+            Err(syn::Error::new(ident.span(), "unexpected attribute identifier"))
+        }
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct Attrs {
     setter: Option<Setter>,
     vis: Option<syn::Visibility>,
@@ -122,4 +156,24 @@ pub struct Attrs {
     value: Option<Value>,
     check: Option<Function>,
     lazy: Option<Lazy>,
+}
+
+
+pub fn parse_attrs(field: &syn::Field) -> syn::Result<Attrs> {
+    let mut attrs: Attrs = Default::default();
+
+    for attr in &field.attrs {
+        let attr = attr.parse_args::<Attr>()?;
+
+        match attr {
+            Attr::Setter(setter) => attrs.setter = Some(setter),
+            Attr::Vis(vis) => attrs.vis = Some(vis),
+            Attr::Each(each) => attrs.each = Some(each),
+            Attr::Value(value) => attrs.value = Some(value),
+            Attr::Check(check) => attrs.check = Some(check),
+            Attr::Lazy(lazy) => attrs.lazy = Some(lazy),
+        }
+    }
+
+    Ok(attrs)
 }

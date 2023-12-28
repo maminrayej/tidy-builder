@@ -1,5 +1,8 @@
 mod attrs;
 
+use std::collections::HashMap;
+
+use quote::quote;
 use syn::spanned::Spanned;
 
 #[proc_macro_derive(Builder, attributes(builder))]
@@ -24,7 +27,15 @@ fn for_struct(
     ast: &syn::DeriveInput,
     struct_data: &syn::DataStruct,
 ) -> Result<proc_macro2::TokenStream, syn::Error> {
-    todo!()
+    let mut attr_map = HashMap::with_capacity(struct_data.fields.len());
+
+    for field in &struct_data.fields {
+        let attrs = attrs::parse_attrs(field)?;
+
+        attr_map.insert(field, attrs);
+    }
+
+    Ok(quote! {})
 }
 
 fn for_enum(
