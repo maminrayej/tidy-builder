@@ -7,7 +7,7 @@
     #[lazy       = override? async? <func>]
 */
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Setter {
     pub skip: bool,
     pub once: bool,
@@ -150,12 +150,18 @@ impl syn::parse::Parse for Attr {
 
 #[derive(Debug, Default)]
 pub struct Attrs {
-    setter: Option<Setter>,
-    vis: Option<syn::Visibility>,
-    each: Option<Each>,
-    value: Option<Value>,
-    check: Option<Function>,
-    lazy: Option<Lazy>,
+    pub setter: Setter,
+    pub vis: Option<syn::Visibility>,
+    pub each: Option<Each>,
+    pub value: Option<Value>,
+    pub check: Option<Function>,
+    pub lazy: Option<Lazy>,
+}
+
+impl Attrs {
+    pub fn has_value(&self) -> bool {
+        self.lazy.is_some() || self.value.is_some()
+    }
 }
 
 
@@ -166,7 +172,7 @@ pub fn parse_attrs(field: &syn::Field) -> syn::Result<Attrs> {
         let attr = attr.parse_args::<Attr>()?;
 
         match attr {
-            Attr::Setter(setter) => attrs.setter = Some(setter),
+            Attr::Setter(setter) => attrs.setter = setter,
             Attr::Vis(vis) => attrs.vis = Some(vis),
             Attr::Each(each) => attrs.each = Some(each),
             Attr::Value(value) => attrs.value = Some(value),

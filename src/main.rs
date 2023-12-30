@@ -1,7 +1,12 @@
+fn zero() -> usize {
+    0
+}
+
 #[derive(tidy_builder::Builder)]
 struct Foo {
-    #[builder(value = 0)]
     bar: usize,
+    baz: Option<usize>,
+    qux: String,
 }
 
 fn main() {}
