@@ -42,9 +42,26 @@ fn for_struct(
         attr_map.insert(field, attrs);
     }
 
-    let builder_ident = quote::format_ident!("{}Builder", ast.ident);
+    let struct_ident = &ast.ident;
+    let builder_ident = quote::format_ident!("{}Builder", struct_ident);
+
+    /* generic parameters of the struct */
+    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
+    let lifetime_params: Vec<_> = ast.generics.lifetimes().collect();
+    let lifetime_names: Vec<_> = lifetime_params.iter().map(|p| p.lifetime.clone()).collect();
+    let const_params: Vec<_> = ast.generics.const_params().collect();
+    let const_names: Vec<_> = const_params.iter().map(|p| p.ident.clone()).collect();
+    let type_params: Vec<_> = ast.generics.type_params().collect();
+    let type_names: Vec<_> = type_params.iter().map(|p| p.ident.clone()).collect();
 
     let mut builder_fields = Vec::with_capacity(fields_cnt);
+    let mut builder_const_names = Vec::with_capacity(fields_cnt);
+    let mut builder_const_params = Vec::with_capacity(fields_cnt);
+    let mut builder_all_false = Vec::with_capacity(fields_cnt);
+
+    let mut builder_inits = Vec::with_capacity(fields_cnt);
+
+    let mut is_builder_async = false;
 
     /* generate the builder struct definition */
     for field in &struct_data.fields {
@@ -75,11 +92,64 @@ fn for_struct(
         let ty = optional.unwrap_or(&field.ty);
 
         builder_fields.push(quote! { #ident: ::std::option::Option<#ty> });
+        builder_inits.push({
+            let init = attrs
+                .value()
+                .map(|value| {
+                    let check_stmt = attrs.check().map(|func| {
+                        let (func_name, is_await) = func.to_token_parts();
+
+                        if is_await.is_some() {
+                            is_builder_async = true;
+                        }
+
+                        quote! { (#func_name)(#ident)#is_await?; }
+                    });
+
+                    quote! {
+                        {
+                            let #ident = #value;
+                            #check_stmt
+                            Some(#ident)
+                        }
+                    }
+                })
+                .unwrap_or(quote! { None });
+
+            quote! { #ident: #init }
+        });
+
+        if required {
+            let req_param_name = quote::format_ident!("REQ_{}", ident.to_string().to_uppercase());
+
+            builder_const_names.push(quote! { #req_param_name });
+            builder_const_params.push(quote! { const #req_param_name: bool });
+            builder_all_false.push(quote! { false });
+        }
     }
 
+    let is_builder_async = is_builder_async.then_some(quote! { async });
+
     Ok(quote! {
-        struct #builder_ident {
+        struct #builder_ident<
+            #(#lifetime_params,)*
+            #(#type_params,)*
+            #(#const_params,)*
+            #(#builder_const_params,)*
+        > {
             #(#builder_fields),*
+        }
+
+        impl #impl_generics #struct_ident #ty_generics  #where_clause {
+            pub #is_builder_async fn builder() -> #builder_ident<#(#lifetime_names,)*
+                                                                #(#type_names,)*
+                                                                #(#const_names,)*
+                                                                #(#builder_all_false,)*>
+            {
+                #builder_ident {
+                    #(#builder_inits,)*
+                }
+            }
         }
     })
 }

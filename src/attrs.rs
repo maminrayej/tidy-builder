@@ -7,6 +7,8 @@
     #[lazy       = override? async? <func>]
 */
 
+use quote::quote;
+
 #[derive(Debug, Default)]
 pub struct Setter {
     pub skip: bool,
@@ -46,6 +48,13 @@ impl syn::parse::Parse for Setter {
 pub struct Function {
     pub is_async: bool,
     pub function: syn::Ident,
+}
+impl Function {
+    pub fn to_token_parts(&self) -> (&syn::Ident, Option<proc_macro2::TokenStream>) {
+        let is_await = self.is_async.then_some(quote! {.await});
+
+        (&self.function, is_await)
+    }
 }
 impl syn::parse::Parse for Function {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
@@ -96,6 +105,20 @@ impl syn::parse::Parse for Value {
         Ok(value)
     }
 }
+impl quote::ToTokens for Value {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            Value::Default => quote! { ::std::default::Default::default() }.to_tokens(tokens),
+            Value::Literal(lit) => quote! { #lit }.to_tokens(tokens),
+            Value::Function(func) => {
+                let func_name = &func.function;
+                let is_await = func.is_async.then_some(quote! { .await });
+
+                quote! { (#func_name)()#is_await }.to_tokens(tokens)
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Lazy {
@@ -143,7 +166,10 @@ impl syn::parse::Parse for Attr {
         } else if ident == "lazy" {
             input.parse::<Lazy>().map(Attr::Lazy)
         } else {
-            Err(syn::Error::new(ident.span(), "unexpected attribute identifier"))
+            Err(syn::Error::new(
+                ident.span(),
+                "unexpected attribute identifier",
+            ))
         }
     }
 }
@@ -162,8 +188,31 @@ impl Attrs {
     pub fn has_value(&self) -> bool {
         self.lazy.is_some() || self.value.is_some()
     }
-}
 
+    pub fn setter(&self) -> &Setter {
+        &self.setter
+    }
+
+    pub fn vis(&self) -> Option<&syn::Visibility> {
+        self.vis.as_ref()
+    }
+
+    pub fn each(&self) -> Option<&Each> {
+        self.each.as_ref()
+    }
+
+    pub fn value(&self) -> Option<&Value> {
+        self.value.as_ref()
+    }
+
+    pub fn check(&self) -> Option<&Function> {
+        self.check.as_ref()
+    }
+
+    pub fn lazy(&self) -> Option<&Lazy> {
+        self.lazy.as_ref()
+    }
+}
 
 pub fn parse_attrs(field: &syn::Field) -> syn::Result<Attrs> {
     let mut attrs: Attrs = Default::default();
