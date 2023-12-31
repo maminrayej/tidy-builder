@@ -54,16 +54,38 @@ fn for_struct(
     let type_params: Vec<_> = ast.generics.type_params().collect();
     let type_names: Vec<_> = type_params.iter().map(|p| p.ident.clone()).collect();
 
+    let mut builder_moves = Vec::with_capacity(fields_cnt);
     let mut builder_fields = Vec::with_capacity(fields_cnt);
     let mut builder_const_names = Vec::with_capacity(fields_cnt);
     let mut builder_const_params = Vec::with_capacity(fields_cnt);
     let mut builder_all_false = Vec::with_capacity(fields_cnt);
 
     let mut builder_inits = Vec::with_capacity(fields_cnt);
+    let mut builder_setters = Vec::with_capacity(fields_cnt);
+    let mut builder_impls = Vec::with_capacity(fields_cnt);
 
     let mut is_builder_async = false;
 
+    for field in &struct_data.fields {
+        let ident = field.ident.as_ref().unwrap();
+        let attrs = &attr_map[&field];
+
+        let optional = ty::wrapped_in_option(&field.ty);
+        let required = optional.is_none() && !attrs.has_value();
+
+        builder_moves.push(quote! { #ident: self.#ident });
+
+        if required {
+            let req_param_name = quote::format_ident!("REQ_{}", ident.to_string().to_uppercase());
+
+            builder_const_names.push(quote! { #req_param_name });
+            builder_const_params.push(quote! { const #req_param_name: bool });
+            builder_all_false.push(quote! { false });
+        }
+    }
+
     /* generate the builder struct definition */
+    let mut req_index = 0;
     for field in &struct_data.fields {
         let ident = field.ident.as_ref().unwrap();
         let attrs = &attr_map[&field];
@@ -119,12 +141,84 @@ fn for_struct(
             quote! { #ident: #init }
         });
 
-        if required {
-            let req_param_name = quote::format_ident!("REQ_{}", ident.to_string().to_uppercase());
+        /* generate setters and impl blocks */
+        let input_ty = if attrs.setter.into {
+            quote! { impl Into<#ty> }
+        } else {
+            quote! { #ty }
+        };
 
-            builder_const_names.push(quote! { #req_param_name });
-            builder_const_params.push(quote! { const #req_param_name: bool });
-            builder_all_false.push(quote! { false });
+        let before_names = builder_const_names.iter().take(req_index);
+        let after_names = builder_const_names.iter().skip(req_index + 1);
+        let mut return_ty = if required {
+            quote! { #builder_ident<#(#lifetime_names,)* #(#type_names,)* #(#const_names,)* #(#before_names,)* true, #(#after_names,)*> }
+        } else {
+            quote! { Self }
+        };
+
+        let mut return_val = if required {
+            quote! {
+                #builder_ident {
+                    #(#builder_moves,)*
+                }
+            }
+        } else {
+            quote! { self }
+        };
+        
+        let init_stmt = attrs
+            .setter
+            .into
+            .then_some(Some(quote! { let #ident = #ident.into(); }));
+
+        let mut is_setter_async = false;
+        let check_stmt = attrs.check().map(|func| {
+            let (func_name, is_await) = func.to_token_parts();
+
+            if is_await.is_some() {
+                is_setter_async = true;
+            }
+            
+            quote! { (#func_name)(#ident)#is_await?; }
+        });
+        if check_stmt.is_some() {
+            return_val = quote! { Ok(#return_val) };
+            return_ty = quote! { ::std::result::Result<#return_ty, ::std::boxed::Box<dyn ::std::error::Error>> };
+        }
+
+        let assign_stmt = quote! { self.#ident = Some(#ident); };
+
+        let is_setter_async = is_setter_async.then_some(quote! {async});
+
+        let setter = quote! {
+            #is_setter_async fn #ident(mut self, #ident: #input_ty) -> #return_ty {
+                #init_stmt
+                #check_stmt
+                #assign_stmt
+                #return_val
+            }
+        };
+        
+        if required && attrs.setter.once {
+            let before_names = builder_const_names.iter().take(req_index);
+            let after_names = builder_const_names.iter().skip(req_index + 1);
+            let before_params = builder_const_params.iter().take(req_index);
+            let after_params = builder_const_params.iter().skip(req_index + 1);
+
+            builder_impls.push(quote! {
+                impl<#(#lifetime_params,)* #(#type_params,)* #(#const_params,)* #(#before_params,)* #(#after_params,)*>
+                #builder_ident<#(#lifetime_names,)* #(#type_names,)* #(#const_names,)* #(#before_names,)* false, #(#after_names,)*>
+                    #where_clause
+                {
+                    #setter
+                }
+            });
+        } else if required || !attrs.setter.skip {
+            builder_setters.push(setter);
+        }
+
+        if required {
+            req_index += 1;
         }
     }
 
@@ -150,6 +244,19 @@ fn for_struct(
                     #(#builder_inits,)*
                 }
             }
+        }
+
+        impl<#(#lifetime_params,)*
+            #(#type_params,)* 
+            #(#const_params,)* 
+            #(#builder_const_params,)*>
+        #builder_ident<#(#lifetime_names,)*
+                    #(#type_names,)* 
+                    #(#const_names,)* 
+                    #(#builder_const_names,)*>
+        #where_clause
+        {
+            #(#builder_setters)*
         }
     })
 }
