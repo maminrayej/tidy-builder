@@ -1,4 +1,5 @@
 mod impl_constraint;
+mod impl_default;
 mod impl_init;
 mod impl_setter;
 
@@ -213,6 +214,7 @@ impl<'a> Generator<'a> {
         let def_setters = self.def_setters()?;
 
         let (guard_traits, guard_trait_idents) = self.guards();
+        let default_trait = self.default_trait();
 
         let (
             b_ident,
@@ -299,6 +301,7 @@ impl<'a> Generator<'a> {
             }
 
             #(#guard_traits)*
+            #(#default_trait)*
         })
     }
 }
